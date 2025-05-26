@@ -1,9 +1,6 @@
 CREATE DATABASE IF NOT EXISTS hotelbooking;
 USE hotelbooking;
 
-
--- Hotel Booking Platform Database Schema (Final Version: Review uses ReviewNumber as weak key)
-
 CREATE TABLE Hotel (
     HotelID INT PRIMARY KEY,
     Name VARCHAR(100),
