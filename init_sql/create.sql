@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS hotelbooking;
 USE hotelbooking;
 
--- Hotel (strong entity)
+
+-- Hotel Booking Platform Database Schema (Final Version: Review uses ReviewNumber as weak key)
+
 CREATE TABLE Hotel (
     HotelID INT PRIMARY KEY,
     Name VARCHAR(100),
@@ -9,7 +11,14 @@ CREATE TABLE Hotel (
     Rating DECIMAL(2,1)
 );
 
--- Customer (strong entity)
+CREATE TABLE HotelPartnership (
+    HotelID1 INT,
+    HotelID2 INT,
+    PRIMARY KEY (HotelID1, HotelID2),
+    FOREIGN KEY (HotelID1) REFERENCES Hotel(HotelID),
+    FOREIGN KEY (HotelID2) REFERENCES Hotel(HotelID)
+);
+
 CREATE TABLE Customer (
     CustomerID INT PRIMARY KEY,
     Username VARCHAR(50) UNIQUE,
@@ -20,92 +29,65 @@ CREATE TABLE Customer (
     PhoneNumber VARCHAR(20)
 );
 
--- Room (weak entity: uniquely identified by HotelID + RoomNumber)
 CREATE TABLE Room (
-    HotelID INT,
-    RoomNumber VARCHAR(10),
+    RoomNumber VARCHAR(10) PRIMARY KEY,
     RoomFloor INT,
-    MaxGuests INT,
-    Status ENUM('available', 'occupied', 'maintenance'),
     PricePerNight DECIMAL(10,2),
-    PRIMARY KEY (HotelID, RoomNumber),
-    FOREIGN KEY (HotelID) REFERENCES Hotel(HotelID)
+    MaxGuests INT,
+    Status TEXT CHECK (Status IN ('available', 'occupied', 'maintenance')),
+    HotelID INT
 );
 
--- SuiteRoom (IS-A of Room)
-CREATE TABLE SuiteRoom (
-    HotelID INT,
-    RoomNumber VARCHAR(10),
-    HasJacuzzi BOOLEAN,
-    HasSeparateLivingRoom BOOLEAN,
-    PRIMARY KEY (HotelID, RoomNumber),
-    FOREIGN KEY (HotelID, RoomNumber) REFERENCES Room(HotelID, RoomNumber)
-);
 
--- DeluxeRoom (IS-A of Room)
 CREATE TABLE DeluxeRoom (
-    HotelID INT,
-    RoomNumber VARCHAR(10),
+    RoomNumber VARCHAR(10) PRIMARY KEY,
     PrivateBalcony BOOLEAN,
     BonusServices TEXT,
-    PRIMARY KEY (HotelID, RoomNumber),
-    FOREIGN KEY (HotelID, RoomNumber) REFERENCES Room(HotelID, RoomNumber)
+    FOREIGN KEY (RoomNumber) REFERENCES Room(RoomNumber)
 );
 
--- Booking (HotelID removed)
+CREATE TABLE SuiteRoom (
+    RoomNumber VARCHAR(10) PRIMARY KEY,
+    SeparateLivingRoom BOOLEAN,
+    Jacuzzi BOOLEAN,
+    FOREIGN KEY (RoomNumber) REFERENCES Room(RoomNumber)
+);
+
 CREATE TABLE Booking (
     BookingID INT PRIMARY KEY,
-    CustomerID INT,
-    BookingDate DATE,
     CheckInDate DATE,
     CheckOutDate DATE,
     TotalPrice DECIMAL(10,2),
+    CustomerID INT,
     FOREIGN KEY (CustomerID) REFERENCES Customer(CustomerID)
 );
 
--- Contains (M:N relationship between Booking and Room)
 CREATE TABLE Contains (
     BookingID INT,
-    HotelID INT,
     RoomNumber VARCHAR(10),
-    PRIMARY KEY (BookingID, HotelID, RoomNumber),
+    PRIMARY KEY (BookingID, RoomNumber),
     FOREIGN KEY (BookingID) REFERENCES Booking(BookingID),
-    FOREIGN KEY (HotelID, RoomNumber) REFERENCES Room(HotelID, RoomNumber)
+    FOREIGN KEY (RoomNumber) REFERENCES Room(RoomNumber)
 );
 
--- Payment (weak entity of Booking)
-CREATE TABLE Payment (
-    BookingID INT,
-    PaymentNumber INT,
-    PaymentMethod VARCHAR(50),
-    CardNumber VARCHAR(20),
-    CVV VARCHAR(4),
-    ExpiryDate DATE,
-    Amount DECIMAL(10,2),
-    PaymentDate DATE,
-    PaymentStatus ENUM('pending', 'completed', 'failed'),
-    PRIMARY KEY (BookingID, PaymentNumber),
-    FOREIGN KEY (BookingID) REFERENCES Booking(BookingID)
-);
-
--- Review (as weak entity, using composite PK)
 CREATE TABLE Review (
-    CustomerID INT,
-    HotelID INT,
-    ReviewNumber INT,
-    ReviewDate DATE,
+    ReviewNumber INT PRIMARY KEY,
     Rating INT CHECK (Rating BETWEEN 1 AND 5),
     Comment TEXT,
-    PRIMARY KEY (CustomerID, HotelID, ReviewNumber),
-    FOREIGN KEY (CustomerID) REFERENCES Customer(CustomerID),
-    FOREIGN KEY (HotelID) REFERENCES Hotel(HotelID)
+    ReviewDate DATE,
+    CustomerID INT,
+    FOREIGN KEY (CustomerID) REFERENCES Customer(CustomerID)
 );
 
--- HotelPartnership (recursive M:N on Hotel)
-CREATE TABLE HotelPartnership (
-    HotelID1 INT,
-    HotelID2 INT,
-    PRIMARY KEY (HotelID1, HotelID2),
-    FOREIGN KEY (HotelID1) REFERENCES Hotel(HotelID),
-    FOREIGN KEY (HotelID2) REFERENCES Hotel(HotelID)
+
+CREATE TABLE Payment (
+    PaymentNumber INT PRIMARY KEY,
+    PaymentMethod TEXT,
+    PaymentDate DATE,
+    PaymentStatus TEXT CHECK (PaymentStatus IN ('pending', 'completed', 'failed')),
+    CardNumber TEXT,
+    ExpiryDate DATE,
+    CVV TEXT,
+    Amount DECIMAL(10,2),
+    BookingID INT
 );
