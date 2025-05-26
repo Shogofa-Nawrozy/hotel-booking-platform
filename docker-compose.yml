@@ -1,9 +1,6 @@
-version: '3.8'
-
 services:
   mariadb:
-    build:
-      context: ./init_sql
+    image: mariadb:10.5
     container_name: mariadb
     restart: always
     environment:
@@ -11,18 +8,13 @@ services:
       MYSQL_DATABASE: hotelbooking
     ports:
       - "3306:3306"
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 10s
-      retries: 5
-      start_period: 30s
+    volumes:
+      - ./init_sql:/docker-entrypoint-initdb.d
 
   backend:
     build:
       context: ./backend
-    container_name: backend
-    depends_on:
-      mariadb:
-        condition: service_healthy
     ports:
       - "5000:5000"
+    depends_on:
+      - mariadb
