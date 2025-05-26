@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  mariadb:
+    build:
+      context: ./init_sql
+    container_name: mariadb
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: hotelbooking
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+
+  backend:
+    build:
+      context: ./backend
+    container_name: backend
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    ports:
+      - "5000:5000"

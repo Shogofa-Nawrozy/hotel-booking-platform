@@ -1,0 +1,32 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+.env
+.DS_Store
+*.log
+*.sqlite3
+*.db
+*.pid
+*.tar
+*.zip
+
+# Docker
+*.bak
+*.swp
+*.swo
+*.tmp
+*.old
+*.tar
+*.img
+*.sock
+docker-compose.override.yml
+*.pid
+
+# VS Code
+.vscode/
+
+# OS generated
+Thumbs.db
