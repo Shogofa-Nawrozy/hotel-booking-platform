@@ -7,6 +7,8 @@ WORKDIR /app
 # Copy backend files into the container
 COPY . .
 
+RUN pip install pymongo flask faker
+
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
