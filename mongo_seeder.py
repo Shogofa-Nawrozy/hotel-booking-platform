@@ -94,5 +94,5 @@ db.payment.insert_many([{
     "BookingID": i
 } for i in range(1, NUM_PAYMENTS + 1)])
 
-print("✅")
+print("DONE!")
 client.close()
