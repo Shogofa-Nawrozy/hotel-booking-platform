@@ -1,0 +1,150 @@
+{% include 'include/header.html' %}
+
+<style>
+   
+    body{
+  font-family: 'Comfortaa', cursive;
+}
+
+h1 {
+  text-align: center;
+  letter-spacing: 2px;
+  font-weight: 300;
+  font-size:30px;
+  margin-top: 20px;
+}
+
+h5{
+  text-align:center;
+  margin-top: 10px;
+  color:gray;
+}
+
+h3{
+  text-align:center;
+  margin-top: 30px;
+  font-size: 20px;
+}
+
+section{
+  width: 500px;
+  margin:50px auto;
+  p{
+    font-size:20px;
+    font-weight: bold;
+    margin-bottom: 15px;
+  }
+}
+
+table{
+  width:100%;
+  margin: auto;
+  tr{
+    width: 100%;
+  }
+  th,td{
+   
+    padding: 15px 50px;
+  }
+  thead{
+    th{
+      background: #000;
+      color: #fff;
+      text-align: left;
+    }
+  }
+
+  tbody{
+    text-align: left;
+    th{
+      background: #eee;
+    }
+  }
+}
+
+@media only screen and (max-width:420px){
+  body{
+    width: 100%;
+  }
+  section{
+    box-sizing:border-box;
+    width: 100%;
+    padding: 0px 20px;
+  }
+  table{
+    tr{
+      display: block;
+      width: 100%;
+    }
+     thead{
+      display: none;
+    }
+    tbody{
+    display: block;
+    width: 100%;
+    overflow: hidden;
+      th{
+        list-style:none;
+      }
+      td{
+        margin-left: 40px;
+      }
+      th,td{
+        width: 100%;
+        display: list-item;
+      }
+    }
+  }
+}
+    
+</style>
+
+
+<link href='https://fonts.googleapis.com/css?family=Comfortaa:400,700' rel='stylesheet' type='text/css'>
+<h1>Hotel Booking Analytics Report</h1>
+  <h5>Student 2: Shogofa Nawrozy</h5>
+
+<section>
+
+
+   <span>Filter by Booking Date: </span>
+ <form action=" " method="POST">
+    <input type="date" name="date" style="padding:7px 15px; margin-top:10px; border:solid;" required>             
+   <input type="submit" value="search" style="padding:7px 15px;  background-color:black; color:white; border:none;">
+ </form>
+
+<table style="margin-top: 50px;">
+  <thead>
+    <tr>
+      <th>Customer Name</th>
+      <th> Hotel Name </th>
+      <th>Number of Bookings</th>
+      <th>Total Amount Spent ($)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Title</th>
+      <td>Content</td>
+      <td>Content</td>
+      <td>Content</td>
+    </tr>
+    <tr>
+      <th>Title</th>
+      <td>Content</td>
+      <td>Content</td>
+      <td>Content</td>
+    </tr>
+   </tbody>
+</table>
+
+<div style="margin-top:50px;">
+   <p >Summary:  </p>
+  <p>- Total Customers: 12 </p>
+  <p>- Total Revenue: $10,500.00 </p>
+ <div>
+
+
+
+</section>
+{% include 'include/footer.html' %}

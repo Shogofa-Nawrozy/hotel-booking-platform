@@ -26,28 +26,35 @@ CREATE TABLE Customer (
     PhoneNumber VARCHAR(20)
 );
 
+-- Room is now a weak entity with composite key (HotelID, RoomNumber)
 CREATE TABLE Room (
-    RoomNumber VARCHAR(10) PRIMARY KEY,
+    HotelID INT,
+    RoomNumber VARCHAR(10),
     RoomFloor INT,
     PricePerNight DECIMAL(10,2),
     MaxGuests INT,
-    Status TEXT CHECK (Status IN ('available', 'occupied', 'maintenance')),
-    HotelID INT
+    Status ENUM('available', 'occupied', 'maintenance'),
+    PRIMARY KEY (HotelID, RoomNumber),
+    FOREIGN KEY (HotelID) REFERENCES Hotel(HotelID)
 );
 
-
+-- IS-A hierarchy for SuiteRoom and DeluxeRoom inherits composite PK
 CREATE TABLE DeluxeRoom (
-    RoomNumber VARCHAR(10) PRIMARY KEY,
+    HotelID INT,
+    RoomNumber VARCHAR(10),
     PrivateBalcony BOOLEAN,
     BonusServices TEXT,
-    FOREIGN KEY (RoomNumber) REFERENCES Room(RoomNumber)
+    PRIMARY KEY (HotelID, RoomNumber),
+    FOREIGN KEY (HotelID, RoomNumber) REFERENCES Room(HotelID, RoomNumber)
 );
 
 CREATE TABLE SuiteRoom (
-    RoomNumber VARCHAR(10) PRIMARY KEY,
+    HotelID INT,
+    RoomNumber VARCHAR(10),
     SeparateLivingRoom BOOLEAN,
     Jacuzzi BOOLEAN,
-    FOREIGN KEY (RoomNumber) REFERENCES Room(RoomNumber)
+    PRIMARY KEY (HotelID, RoomNumber),
+    FOREIGN KEY (HotelID, RoomNumber) REFERENCES Room(HotelID, RoomNumber)
 );
 
 CREATE TABLE Booking (
@@ -59,32 +66,40 @@ CREATE TABLE Booking (
     FOREIGN KEY (CustomerID) REFERENCES Customer(CustomerID)
 );
 
+-- Many-to-many relationship Booking <-> Room via Contains associative table
 CREATE TABLE Contains (
     BookingID INT,
+    HotelID INT,
     RoomNumber VARCHAR(10),
-    PRIMARY KEY (BookingID, RoomNumber),
+    PRIMARY KEY (BookingID, HotelID, RoomNumber),
     FOREIGN KEY (BookingID) REFERENCES Booking(BookingID),
-    FOREIGN KEY (RoomNumber) REFERENCES Room(RoomNumber)
+    FOREIGN KEY (HotelID, RoomNumber) REFERENCES Room(HotelID, RoomNumber)
 );
 
+-- Payment is weak entity dependent on Booking with composite PK (BookingID, PaymentNumber)
+CREATE TABLE Payment (
+    BookingID INT,
+    PaymentNumber INT,
+    PaymentMethod VARCHAR(50),
+    PaymentDate DATE,
+    PaymentStatus ENUM('pending', 'completed', 'failed'),
+    CardNumber VARCHAR(20),
+    ExpiryDate DATE,
+    CVV VARCHAR(5),
+    Amount DECIMAL(10,2),
+    PRIMARY KEY (BookingID, PaymentNumber),
+    FOREIGN KEY (BookingID) REFERENCES Booking(BookingID)
+);
+
+-- Review is weak entity dependent on (CustomerID, HotelID) with composite PK
 CREATE TABLE Review (
-    ReviewNumber INT PRIMARY KEY,
+    CustomerID INT,
+    HotelID INT,
+    ReviewNumber INT,
     Rating INT CHECK (Rating BETWEEN 1 AND 5),
     Comment TEXT,
     ReviewDate DATE,
-    CustomerID INT,
-    FOREIGN KEY (CustomerID) REFERENCES Customer(CustomerID)
-);
-
-
-CREATE TABLE Payment (
-    PaymentNumber INT PRIMARY KEY,
-    PaymentMethod TEXT,
-    PaymentDate DATE,
-    PaymentStatus TEXT CHECK (PaymentStatus IN ('pending', 'completed', 'failed')),
-    CardNumber TEXT,
-    ExpiryDate DATE,
-    CVV TEXT,
-    Amount DECIMAL(10,2),
-    BookingID INT
+    PRIMARY KEY (CustomerID, HotelID, ReviewNumber),
+    FOREIGN KEY (CustomerID) REFERENCES Customer(CustomerID),
+    FOREIGN KEY (HotelID) REFERENCES Hotel(HotelID)
 );

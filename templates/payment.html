@@ -1,92 +1,214 @@
 {% include 'include/header.html' %}
 
+<section class="hero-section">
+    <div class="container">
+        <div class="row">
 
- <section class="hero-section">
-        <div class="container">
-            <div class="row">
-
-                <div class="col-lg-6">
-                    <div class="room-details-item">
-                        <img src="{{ url_for('static', filename='img/room/room-details.jpg') }}" alt="">
-                        <div class="rd-text">
-                            <div class="rd-title">
-                                <h3>Premium King Room</h3>
-                                <div class="rdt-right">
-                                    <span> Rating  </span>
-                                    <div class="rating">
-                                        <i class="icon_star"></i>
-                                        <i class="icon_star"></i>
-                                        <i class="icon_star"></i>
-                                        <i class="icon_star"></i>
-                                        <i class="icon_star-half_alt"></i>
-                                    </div>
+            <div class="col-lg-6">
+                <div class="room-details-item">
+                    <img src="{{ url_for('static', filename='img/room/room-details.jpg') }}" alt="">
+                    <div class="rd-text">
+                        <div class="rd-title">
+                            <h3>Premium King Room</h3>
+                            <div class="rdt-right">
+                                <span> Rating  </span>
+                                <div class="rating">
+                                    <i class="icon_star"></i>
+                                    <i class="icon_star"></i>
+                                    <i class="icon_star"></i>
+                                    <i class="icon_star"></i>
+                                    <i class="icon_star-half_alt"></i>
                                 </div>
                             </div>
-                            <h2>300$<span>Total Price</span></h2>
-                            <p>100$<span>/Per night</span></p>
-                            <table>
-                                <tbody>
-                                    <tr>
-                                        <td class="r-o">Size:</td>
-                                        <td>30 ft</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="r-o">Capacity:</td>
-                                        <td>Max persion 5</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="r-o">Bed:</td>
-                                        <td>King Beds</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="r-o">Services:</td>
-                                        <td>Wifi, Television, Bathroom,...</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                            <p class="f-para">Motorhome or Trailer that is the question for you. Here are some of the
-                                advantages and disadvantages of both, so you will be confident when purchasing an RV.
-                                When comparing Rvs, a motorhome or a travel trailer, should you buy a motorhome or fifth
-                                wheeler? The advantages and disadvantages of both are studied so that you can make your
-                                choice wisely when purchasing an RV. Possessing a motorhome or fifth wheel is an
-                                achievement of a lifetime. It can be similar to sojourning with your residence as you
-                                search the various sites of our great land, America.</p>
                         </div>
-                    </div>
-                </div>
-
-                <div class="col-xl-4 col-lg-5 offset-xl-2 offset-lg-1">
-                    <div class="booking-form">
-                        <h3>Booking Your Hotel</h3>
-                        <form action="{{ url_for('rooms') }}">
-                            <div class="check-date">
-                                <label for="date-in">Payment Date:</label>
-                                <input type="text" class="date-input" id="date-in">
-                                <i class="icon_calendar"></i>
-                            </div>
-                           
-                            <div class="select-option">
-                                <label for="guest">Payment Method:</label>
-                                <select id="guest" required>
-                                    <option value="Credit">Credit</option>
-                                    <option value="Debit">Debit</option>
-                                </select>
-                            </div>
-
-                            <input type="text" name="card_number" placeholder="Card Number" required>
-                            <input type="text" name="expiry_date" placeholder="MM/YY" required>
-                            <input type="text" name="cvv" placeholder="CVV" required>
-                           
-                            <input type="submit" value="Pay Now">
-                            <button type="submit" value="Pay Now"> </button>
-                        </form>
+                        <h2>$300<span>Total Price</span></h2>
+                        <p>$100<span>/Per night</span></p>
+                        <table>
+                            <tbody>
+                                <tr>
+                                    <td class="r-o">Size:</td>
+                                    <td>30 ft</td>
+                                </tr>
+                                <tr>
+                                    <td class="r-o">Capacity:</td>
+                                    <td>Max person 5</td>
+                                </tr>
+                                <tr>
+                                    <td class="r-o">Bed:</td>
+                                    <td>King Beds</td>
+                                </tr>
+                                <tr>
+                                    <td class="r-o">Services:</td>
+                                    <td>Wifi, Television, Bathroom,...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <p class="f-para">Motorhome or Trailer that is the question for you. Here are some of the
+                            advantages and disadvantages of both, so you will be confident when purchasing an RV.
+                            When comparing Rvs, a motorhome or a travel trailer, should you buy a motorhome or fifth
+                            wheeler? The advantages and disadvantages of both are studied so that you can make your
+                            choice wisely when purchasing an RV. Possessing a motorhome or fifth wheel is an
+                            achievement of a lifetime. It can be similar to sojourning with your residence as you
+                            search the various sites of our great land, America.</p>
                     </div>
                 </div>
             </div>
+
+            <div class="col-xl-4 col-lg-5 offset-xl-2 offset-lg-1">
+                <div class="booking-form">
+                    <h3>Booking Your Hotel</h3>
+                    <form id="payment-form" action="{{ url_for('rooms') }}" method="POST">
+
+                        <div class="check-date">
+                            <label for="date-in">Payment Date:</label>
+                            <input type="text" id="date-in" class="date-input" name="payment_date" required>
+                            <i class="icon_calendar"></i>
+                        </div>
+
+                        <div class="select-option">
+                            <label for="payment-method">Payment Method:</label>
+                            <select id="payment-method" name="payment_method" required>
+                                <option value="Credit Card">Credit Card</option>
+                                <option value="Debit Card">Debit Card</option>
+                            </select>
+                        </div>
+
+                        <!-- Payment Option: Full or Installments -->
+                        <div class="payment-option">
+                            <label>
+                                <input type="radio" name="payment_option" value="full" checked> Pay full amount
+                            </label><br>
+                            <label>
+                                <input type="radio" name="payment_option" value="installment"> Pay in 2 installments
+                            </label>
+                        </div>
+
+                        <!-- Payment Amount (read-only, changes based on payment option) -->
+                        <div class="payment-amount-section">
+                            <label for="payment-amount">Amount to Pay Now:</label>
+                            <input type="number" id="payment-amount" name="payment_amount" readonly value="300.00" step="0.01">
+                        </div>
+
+                        <p for="card" style="margin-top:10px;">Cardnumber:</p>
+                        <input id="card" type="text" name="card_number"  maxlength="16" pattern="\d{16}"  style="margin-top:-20px;" required>
+
+                         <p for="expirationdate" style="margin-top:10px;">Expiration (mm/yy)</p>
+                        <input id="expirationdate" type="text" name="expiry_date" pattern="(0[1-9]|1[0-2])\/\d{2}" style="margin-bottom:10px;" required>
+                        
+                        <p for="cvv" style="margin-top:10px;">CVV</p>
+                        <input id="cvv" type="text" name="cvv" maxlength="3" pattern="\d{3}" required>
+
+                        <input type="submit" value="Pay Now" style="padding:10px 20px; margin-top:10px; display: block; background-color:black; color:white; border:none;">
+                    </form>
+
+                    <div id="confirmation-message" style="margin-top: 15px; color: green; display:none;"></div>
+                </div>
+            </div>
         </div>
+    </div>
+</section>
+<!-- Hero Section End -->
 
-    </section>
-    <!-- Hero Section End -->
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const bookingTotal = 300.00; // Should be dynamic if possible
+        const paymentAmountInput = document.getElementById('payment-amount');
+        const paymentOptionRadios = document.getElementsByName('payment_option');
+        const paymentForm = document.getElementById('payment-form');
+        const confirmationMessage = document.getElementById('confirmation-message');
 
+        function updatePaymentAmount() {
+            let selectedOption = Array.from(paymentOptionRadios).find(r => r.checked).value;
+            if (selectedOption === 'full') {
+                paymentAmountInput.value = bookingTotal.toFixed(2);
+            } else {
+                paymentAmountInput.value = (bookingTotal / 2).toFixed(2);
+            }
+        }
+
+        paymentOptionRadios.forEach(radio => {
+            radio.addEventListener('change', updatePaymentAmount);
+        });
+
+        updatePaymentAmount(); // initialize on page load
+
+        paymentForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+
+            // Collect form data
+            const formData = new FormData(paymentForm);
+            const paymentOption = formData.get('payment_option');
+            const paymentAmountNow = parseFloat(formData.get('payment_amount'));
+            const paymentMethod = formData.get('payment_method');
+            const paymentDate = formData.get('payment_date');
+            const cardNumber = formData.get('card_number');
+            const expiryDate = formData.get('expiry_date');
+            const cvv = formData.get('cvv');
+
+            // Basic validation
+            if (!paymentDate) {
+                alert('Please enter payment date.');
+                return;
+            }
+
+            // Prepare payments array for backend
+            const bookingID = 101; // Replace with actual booking ID in real scenario
+
+            let payments = [];
+
+            payments.push({
+                BookingID: bookingID,
+                PaymentNumber: 1,
+                PaymentMethod: paymentMethod,
+                PaymentDate: paymentDate,
+                Amount: paymentAmountNow,
+                CardNumber: cardNumber,
+                ExpiryDate: expiryDate,
+                CVV: cvv,
+                PaymentStatus: "Completed"
+            });
+
+            if (paymentOption === 'installment') {
+                payments.push({
+                    BookingID: bookingID,
+                    PaymentNumber: 2,
+                    PaymentMethod: paymentMethod,
+                    PaymentDate: null,
+                    Amount: (bookingTotal - paymentAmountNow),
+                    CardNumber: null,
+                    ExpiryDate: null,
+                    CVV: null,
+                    PaymentStatus: "Pending"
+                });
+            }
+
+            // Send payments to backend API (replace '{{ url_for("payment") }}' with your actual endpoint)
+            fetch('{{ url_for("payment") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ payments }),
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not OK');
+                }
+                return response.json();
+            })
+            .then(data => {
+                confirmationMessage.style.display = 'block';
+                confirmationMessage.textContent = 'Payment processed successfully!';
+                paymentForm.reset();
+                updatePaymentAmount();
+            })
+            .catch(error => {
+                confirmationMessage.style.display = 'block';
+                confirmationMessage.style.color = 'red';
+                confirmationMessage.textContent = 'Error processing payment: ' + error.message;
+            });
+        });
+    });
+</script>
 
 {% include 'include/footer.html' %}

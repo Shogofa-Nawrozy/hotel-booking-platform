@@ -1,10 +1,60 @@
 from flask import Flask, render_template, jsonify
 from pymongo import MongoClient
 import subprocess
+import mysql.connector
+from mysql.connector import Error
 
+max_retries = 10
+retry_delay = 3  # seconds
 
+for attempt in range(max_retries):
+    try:
+        db = mysql.connector.connect(
+            host="mariadb",
+            user="root",
+            password="root",
+            database="hotelbooking"
+        )
+        print("Connected to MariaDB")
+        break
+    except Error as e:
+        print(f"Attempt {attempt + 1} failed: {e}")
+        time.sleep(retry_delay)
+else:
+    print("Failed to connect after several attempts.")
+    exit(1)
 
 app = Flask(__name__)
+
+
+
+@app.route('/admin')
+def admin_dashboard():
+    return render_template("admin.html")
+
+
+@app.route('/import-mariadb')
+def import_mariadb():
+    # Run your seeder script
+    result = subprocess.run(['python3', 'mariadb_seeder.py'], capture_output=True, text=True)
+
+    if result.returncode == 0:
+        return "<h2>✅ Fake data imported into MariaDB successfully!</h2><a href='/admin'>Back</a>"
+    else:
+        return f"<h2>❌ Error importing data:</h2><pre>{result.stderr}</pre><a href='/admin'>Back</a>"
+
+
+
+@app.route('/migrate-sql-to-nosql')
+def migrate_sql_to_nosql():
+    try:
+        result = subprocess.run(["python", "migrate_sql_to_nosql.py"], capture_output=True, text=True)
+        if result.returncode == 0:
+            return render_template("admin.html", message="✅ Data successfully migrated from MariaDB to MongoDB.")
+        else:
+            return render_template("admin.html", message=f"❌ Migration Error: {result.stderr}")
+    except Exception as e:
+        return render_template("admin.html", message=f"❌ Exception: {str(e)}")
 
 
 client = MongoClient("mongodb://mongo:27017/")
@@ -38,6 +88,10 @@ def bookings():
 @app.route('/payment')
 def payment():
     return render_template('payment.html')
+
+@app.route('/booking_report')
+def booking_report():
+    return render_template('booking_report.html')
 
 @app.route('/blog')
 def blog():
@@ -100,21 +154,6 @@ def api_payments():
         d['_id'] = str(d['_id'])
     return jsonify(data)
 
-# ROUTE TO TRIGGER MONGODB DATA SEEDING
-@app.route('/import-mongo')
-def import_mongo():
-    """
-    Run the mongo_seeder.py script to populate MongoDB with random data.
-    Displays success or error message on a simple HTML page.
-    """
-    try:
-        result = subprocess.run(["python", "mongo_seeder.py"], capture_output=True, text=True)
-        if result.returncode == 0:
-            return render_template("mongo-import.html", message="✅ MongoDB data imported successfully.")
-        else:
-            return render_template("mongo-import.html", message=f"❌ Error occurred: {result.stderr}")
-    except Exception as e:
-        return render_template("mongo-import.html", message=f"❌ Exception: {str(e)}")
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
 
-if __name__ == '__main__':
-    app.run(debug=True, host="0.0.0.0")
