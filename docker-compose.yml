@@ -1,6 +1,30 @@
 version: '3.3'
 
 services:
+  # MariaDB Service
+  mariadb:
+    image: mariadb
+    container_name: mariadb
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: hotelbooking
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb-data:/var/lib/mysql
+
+  # Adminer for MariaDB
+  adminer:
+    image: adminer
+    container_name: adminer
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mariadb
+
+  # MongoDB Service
   mongo:
     image: mongo
     container_name: mongo
@@ -10,6 +34,19 @@ services:
     volumes:
       - mongo-data:/data/db
 
+  # Mongo Express (MongoDB GUI)
+  mongo-express:
+    image: mongo-express
+    container_name: mongo-express
+    restart: always
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongo
+    depends_on:
+      - mongo
+
+  # Mongo Seeder (Python script)
   mongo-seeder:
     build:
       context: .
@@ -19,6 +56,7 @@ services:
       - mongo
     command: python mongo_seeder.py
 
+  # Flask App Frontend
   frontend:
     build:
       context: .
@@ -26,9 +64,13 @@ services:
     container_name: flask-app
     ports:
       - "5000:5000"
+    volumes:
+      - .:/app
     depends_on:
       - mongo
+      - mariadb
     command: python app.py
 
 volumes:
   mongo-data:
+  mariadb-data:
