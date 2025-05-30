@@ -1,5 +1,4 @@
 services:
-  # MariaDB Service
   mariadb:
     image: mariadb
     container_name: mariadb
@@ -7,11 +6,14 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: hotelbooking
+      MYSQL_USER: user
+      MYSQL_PASSWORD: upass
     ports:
       - "3306:3306"
     volumes:
       - mariadb-data:/var/lib/mysql
-      - ./init_sql:/docker-entrypoint-initdb.d
+      - ./init_sql/create.sql:/docker-entrypoint-initdb.d/create.sql
+
 
   # Adminer for MariaDB
   adminer:

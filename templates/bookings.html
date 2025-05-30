@@ -33,7 +33,10 @@
                         <!-- Text/details column -->
                         <div class="ri-text" style="width: 600px; height: auto;">
                             <h4>Premium King Room</h4>
-                            <h5>300$<span>Total Price</span></h5>
+                            {% for row in booking %}
+                                <h5>{{ row.TotalPrice }}$ <span>Total Price</span></h5>
+                            {% endfor %}
+
                             <p>100$<span>/Per night</span></p>
                                
                                  <div class="rating"  style="padding-top:10px;" >

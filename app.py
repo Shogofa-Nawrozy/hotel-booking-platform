@@ -1,28 +1,16 @@
 from flask import Flask, render_template, jsonify
 from pymongo import MongoClient
 import subprocess
-import mysql.connector
-from mysql.connector import Error
+import mysql.connector  # works for both MySQL and MariaDB
 
-max_retries = 10
-retry_delay = 3  # seconds
+def get_db_connection():
+    return mysql.connector.connect(
+        host='mariadb',            # name of service in docker-compose.yml
+        user='user',          # matches MARIADB_USER
+        password='upass',  # matches MARIADB_PASSWORD
+        database='hotelbooking' # matches MARIADB_DATABASE
+    )
 
-for attempt in range(max_retries):
-    try:
-        db = mysql.connector.connect(
-            host="mariadb",
-            user="root",
-            password="root",
-            database="hotelbooking"
-        )
-        print("Connected to MariaDB")
-        break
-    except Error as e:
-        print(f"Attempt {attempt + 1} failed: {e}")
-        time.sleep(retry_delay)
-else:
-    print("Failed to connect after several attempts.")
-    exit(1)
 
 app = Flask(__name__)
 
@@ -83,7 +71,13 @@ def rooms_details():
 
 @app.route('/bookings')
 def bookings():
-    return render_template('bookings.html')
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute('SELECT * FROM Booking;')
+    data = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return render_template('bookings.html', booking=data)
 
 @app.route('/payment')
 def payment():
