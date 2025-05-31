@@ -1,10 +1,5 @@
-# First, let's regenerate a matching seeder script based on the given ER diagram and schema.
-# The key adjustments are:
-# - Use composite keys (HotelID, RoomNumber) for Room-related tables
-# - Reflect many-to-many relationships appropriately (e.g., Contains, HotelPartnership)
-# - Ensure multi-payment per booking, multiple rooms per booking, and reviews
-
 from faker import Faker
+import mysql.connector
 from datetime import timedelta
 import random
 
@@ -18,22 +13,40 @@ MAX_ROOMS_PER_BOOKING = 3
 MAX_PAYMENTS_PER_BOOKING = 2
 MAX_REVIEWS_PER_CUSTOMER = 3
 
-# Generate SQL statements for seeding the database
+# SQL statement list
 seed_sql = []
 
-# Hotels
+# ✅ Disable foreign key checks & fully clear data
+seed_sql.append("SET FOREIGN_KEY_CHECKS = 0;")
+tables = [
+    "Review",
+    "Payment",
+    "Contains",
+    "Booking",
+    "SuiteRoom",
+    "DeluxeRoom",
+    "Room",
+    "HotelPartnership",
+    "Customer",
+    "Hotel"
+]
+for table in tables:
+    seed_sql.append(f"TRUNCATE TABLE {table};")  # better than DELETE for full reset
+seed_sql.append("SET FOREIGN_KEY_CHECKS = 1;")
+
+# ✅ Insert Hotels
 hotels = [(i+1, f"Hotel {chr(65+i)}", fake.city(), round(random.uniform(3.0, 5.0), 1)) for i in range(NUM_HOTELS)]
 seed_sql.append("-- Insert Hotels")
 for h in hotels:
     seed_sql.append(f"INSERT INTO Hotel (HotelID, Name, Location, Rating) VALUES ({h[0]}, '{h[1]}', '{h[2]}', {h[3]});")
 
-# Hotel Partnerships (symmetric, without self-pairing)
+# ✅ Hotel Partnerships
 seed_sql.append("-- Insert Hotel Partnerships")
 for i in range(NUM_HOTELS):
     for j in range(i+1, NUM_HOTELS):
         seed_sql.append(f"INSERT INTO HotelPartnership (HotelID1, HotelID2) VALUES ({hotels[i][0]}, {hotels[j][0]});")
 
-# Customers
+# ✅ Insert Customers
 seed_sql.append("-- Insert Customers")
 for i in range(1, NUM_CUSTOMERS + 1):
     seed_sql.append(f"""
@@ -49,21 +62,24 @@ for i in range(1, NUM_CUSTOMERS + 1):
     );
     """)
 
-# Rooms (per hotel)
+# ✅ Insert Rooms and Subtypes
 seed_sql.append("-- Insert Rooms and Room Subtypes")
 room_numbers = {}
 for hotel_id in range(1, NUM_HOTELS + 1):
+    room_numbers[hotel_id] = []
     for room_index in range(1, NUM_ROOMS_PER_HOTEL + 1):
-        room_num = f"R{hotel_id:01d}{room_index:03d}"
-        room_numbers.setdefault(hotel_id, []).append(room_num)
+        room_num = f"R{hotel_id}{room_index:03d}"  # guaranteed unique per hotel
+        room_numbers[hotel_id].append(room_num)
         floor = random.randint(1, 10)
         price = round(random.uniform(80, 500), 2)
         guests = random.randint(1, 4)
         status = random.choice(['available', 'occupied', 'maintenance'])
+
         seed_sql.append(f"""
         INSERT INTO Room (HotelID, RoomNumber, RoomFloor, PricePerNight, MaxGuests, Status)
         VALUES ({hotel_id}, '{room_num}', {floor}, {price}, {guests}, '{status}');
         """)
+
         if random.choice([True, False]):
             seed_sql.append(f"""
             INSERT INTO SuiteRoom (HotelID, RoomNumber, SeparateLivingRoom, Jacuzzi)
@@ -75,29 +91,35 @@ for hotel_id in range(1, NUM_HOTELS + 1):
             VALUES ({hotel_id}, '{room_num}', {random.randint(0,1)}, 'Bonus {fake.word()}');
             """)
 
-# Bookings, Contains, and Payments
+# ✅ Bookings, Contains, Payments
 seed_sql.append("-- Insert Bookings, Contains, Payments")
+used_room_combos = set()
 for booking_id in range(1, NUM_BOOKINGS + 1):
     customer_id = random.randint(1, NUM_CUSTOMERS)
     checkin = fake.date_between(start_date='-6M', end_date='-1d')
     checkout = checkin + timedelta(days=random.randint(1, 10))
     total_price = round(random.uniform(300, 3000), 2)
+
     seed_sql.append(f"""
     INSERT INTO Booking (BookingID, CheckInDate, CheckOutDate, TotalPrice, CustomerID)
     VALUES ({booking_id}, '{checkin}', '{checkout}', {total_price}, {customer_id});
     """)
-    
-    # Add rooms to Contains
+
+    # Ensure no duplicate (BookingID, HotelID, RoomNumber)
     for _ in range(random.randint(1, MAX_ROOMS_PER_BOOKING)):
-        hid = random.randint(1, NUM_HOTELS)
-        rnum = random.choice(room_numbers[hid])
+        while True:
+            hid = random.randint(1, NUM_HOTELS)
+            rnum = random.choice(room_numbers[hid])
+            combo = (booking_id, hid, rnum)
+            if combo not in used_room_combos:
+                used_room_combos.add(combo)
+                break
         seed_sql.append(f"""
         INSERT INTO Contains (BookingID, HotelID, RoomNumber)
         VALUES ({booking_id}, {hid}, '{rnum}');
         """)
 
-    # Add multiple payments per booking
-    for payment_num in range(1, random.randint(2, MAX_PAYMENTS_PER_BOOKING+1)):
+    for payment_num in range(1, random.randint(2, MAX_PAYMENTS_PER_BOOKING + 1)):
         method = random.choice(['Credit Card', 'Debit Card'])
         pay_date = fake.date_between(start_date='-6M', end_date='today')
         status = random.choice(['pending', 'completed', 'failed'])
@@ -111,7 +133,7 @@ for booking_id in range(1, NUM_BOOKINGS + 1):
         VALUES ({booking_id}, {payment_num}, '{method}', '{pay_date}', '{status}', '{card}', '{exp}', '{cvv}', {amount});
         """)
 
-# Reviews
+# ✅ Reviews
 seed_sql.append("-- Insert Reviews")
 for customer_id in range(1, NUM_CUSTOMERS + 1):
     for review_num in range(1, random.randint(1, MAX_REVIEWS_PER_CUSTOMER) + 1):
@@ -124,6 +146,21 @@ for customer_id in range(1, NUM_CUSTOMERS + 1):
         VALUES ({customer_id}, {hotel_id}, {review_num}, {rating}, '{comment}', '{review_date}');
         """)
 
-# Join all SQL lines into one seeder script
-seeder_script = "\n".join(seed_sql)
-seeder_script[:1000]  # Show a preview of the beginning
+# ✅ Execute SQL statements
+try:
+    conn = mysql.connector.connect(
+        host="mariadb",
+        user="user",
+        password="upass",
+        database="hotelbooking"
+    )
+    cursor = conn.cursor()
+    for statement in "\n".join(seed_sql).split(";\n"):
+        if statement.strip():
+            cursor.execute(statement + ";")
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("MariaDB seeded successfully.")
+except Exception as e:
+    print("Error while seeding MariaDB:", e)

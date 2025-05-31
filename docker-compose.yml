@@ -1,3 +1,5 @@
+version: '3.3'
+
 services:
   mariadb:
     image: mariadb
@@ -13,7 +15,6 @@ services:
     volumes:
       - mariadb-data:/var/lib/mysql
       - ./init_sql/create.sql:/docker-entrypoint-initdb.d/create.sql
-
 
   # Adminer for MariaDB
   adminer:

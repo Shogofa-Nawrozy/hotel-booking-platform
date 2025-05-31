@@ -5,34 +5,32 @@ import mysql.connector  # works for both MySQL and MariaDB
 
 def get_db_connection():
     return mysql.connector.connect(
-        host='mariadb',            # name of service in docker-compose.yml
-        user='user',          # matches MARIADB_USER
-        password='upass',  # matches MARIADB_PASSWORD
-        database='hotelbooking' # matches MARIADB_DATABASE
+        host='mariadb',            # Docker service name
+        user='user',               # matches MARIADB_USER
+        password='upass',          # matches MARIADB_PASSWORD
+        database='hotelbooking'    # matches MARIADB_DATABASE
     )
-
 
 app = Flask(__name__)
 
-
-
+# Admin dashboard page
 @app.route('/admin')
 def admin_dashboard():
     return render_template("admin.html")
 
+# Reset MariaDB: Deletes and re-generates all data using mariadb_seeder.py
+@app.route('/reset-mariadb')
+def reset_mariadb():
+    try:
+        result = subprocess.run(['python3', 'mariadb_seeder.py'], capture_output=True, text=True)
+        if result.returncode == 0:
+            return render_template("admin.html", message="✅ MariaDB has been reset and repopulated with fake data.")
+        else:
+            return render_template("admin.html", message=f"❌ Error during MariaDB reset: {result.stderr}")
+    except Exception as e:
+        return render_template("admin.html", message=f"❌ Exception occurred: {str(e)}")
 
-@app.route('/import-mariadb')
-def import_mariadb():
-    # Run your seeder script
-    result = subprocess.run(['python3', 'mariadb_seeder.py'], capture_output=True, text=True)
-
-    if result.returncode == 0:
-        return "<h2>✅ Fake data imported into MariaDB successfully!</h2><a href='/admin'>Back</a>"
-    else:
-        return f"<h2>❌ Error importing data:</h2><pre>{result.stderr}</pre><a href='/admin'>Back</a>"
-
-
-
+# Migrate data from MariaDB to MongoDB using external script
 @app.route('/migrate-sql-to-nosql')
 def migrate_sql_to_nosql():
     try:
@@ -44,11 +42,11 @@ def migrate_sql_to_nosql():
     except Exception as e:
         return render_template("admin.html", message=f"❌ Exception: {str(e)}")
 
-
+# MongoDB connection
 client = MongoClient("mongodb://mongo:27017/")
 db = client["hotel-booking-platform"]
 
-
+# Static frontend pages
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -96,8 +94,7 @@ def blog_details():
     return render_template('blog-details.html')
 
 
-
-# BACKEND API ROUTES (JSON Endpoints for all collections)
+# REST API Endpoints (MongoDB Data as JSON)
 
 @app.route('/api/hotels')
 def api_hotels():
@@ -150,4 +147,3 @@ def api_payments():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-
