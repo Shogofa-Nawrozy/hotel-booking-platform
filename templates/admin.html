@@ -52,6 +52,14 @@
             margin-bottom: 1rem;
             color: #f0f0f0;
         }
+        .active-db {
+            background-color: #2e7d32;
+            padding: 0.8rem;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: bold;
+            margin-bottom: 1rem;
+        }
     </style>
 </head>
 <body>
@@ -59,6 +67,18 @@
 <div class="container">
     <h2>Admin Dashboard</h2>
 
+    <!-- Active Database Indicator -->
+    {% if session.active_db %}
+        <div class="active-db">
+            ✅ Active Database: {{ session.active_db|capitalize }}
+        </div>
+    {% else %}
+        <div class="message-box" style="background-color: #ff9800;">
+            ⚠️ No active database selected. Please activate MariaDB or MongoDB.
+        </div>
+    {% endif %}
+
+    <!-- Feedback Message -->
     {% if message %}
         <div class="message-box">
             {{ message }}

@@ -1,109 +1,66 @@
 {% include 'include/header.html' %}
 
-    <!-- Breadcrumb Section Begin -->
-    <div class="breadcrumb-section">
-        <div class="container">
-            <div class="row">
-                <div class="col-lg-12">
-                    <div class="breadcrumb-text">
-                        <h2>Your Booking List</h2>
-                        <div class="bt-option">
-                            <a href="{{ url_for('index') }}">Home</a>
-                            <span>Rooms</span>
-                        </div>
+<!-- Breadcrumb Section Begin -->
+<div class="breadcrumb-section">
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-12">
+                <div class="breadcrumb-text">
+                    <h2>Your Booking List</h2>
+                    <div class="bt-option">
+                        <a href="{{ url_for('index') }}">Home</a>
+                        <span>Bookings</span>
                     </div>
                 </div>
             </div>
         </div>
     </div>
-    <!-- Breadcrumb Section End -->
+</div>
+<!-- Breadcrumb Section End -->
 
-    <!-- Rooms Section Begin -->
-    <section class="rooms-section spad">
-        <div class="container">
-            <div class="row">
-                
-                <div class="col-lg-12 mb-4">
-                    <div class="room-item d-flex flex-row align-items-start">
-                        <!-- Image column -->
-                        <div class="room-img me-4">
-                            <img src="{{ url_for('static', filename='img/room/room-1.jpg') }}" alt="" style="width: 300px; height: auto; border-radius: 10px;">
+<!-- Bookings Section Begin -->
+<section class="rooms-section spad">
+    <div class="container">
+        <div class="row">
+
+            {% for row in booking %}
+            <div class="col-lg-12 mb-4">
+                <div class="room-item d-flex flex-row align-items-start">
+                    <!-- Image -->
+                    <div class="room-img me-4">
+                        <img src="{{ url_for('static', filename='img/room/room-1.jpg') }}" alt="Room Image"
+                             style="width: 300px; height: auto; border-radius: 10px;">
+                    </div>
+
+                    <!-- Details -->
+                    <div class="ri-text" style="width: 600px; height: auto;">
+                        <h4>{{ row.RoomName if row.RoomName else 'Room' }}</h4>
+                        <h5>{{ row.TotalPrice }}$ <span>Total Price</span></h5>
+                        <p>{{ row.BookingDate if row.BookingDate else 'Date Unknown' }}</p>
+
+                        <div class="rating" style="padding-top:10px;">
+                            <span>Rating</span>
+                            <i class="icon_star" style="color: #FFD700;"></i>
+                            <i class="icon_star" style="color: #FFD700;"></i>
+                            <i class="icon_star" style="color: #FFD700;"></i>
+                            <i class="icon_star" style="color: #FFD700;"></i>
+                            <i class="icon_star-half_alt" style="color: #FFD700;"></i>
+                            <a href="{{ url_for('payment') }}" class="primary-btn" style="margin-left:200px;">Continue with Payment</a>
                         </div>
-
-                        <!-- Text/details column -->
-                        <div class="ri-text" style="width: 600px; height: auto;">
-                            <h4>Premium King Room</h4>
-                            {% for row in booking %}
-                                <h5>{{ row.TotalPrice }}$ <span>Total Price</span></h5>
-                            {% endfor %}
-
-                            <p>100$<span>/Per night</span></p>
-                               
-                                 <div class="rating"  style="padding-top:10px;" >
-                                    <span>Rating   </span>
-                                    <i class="icon_star" style="color: #FFD700;"></i>
-                                    <i class="icon_star" style="color: #FFD700;"></i>
-                                    <i class="icon_star" style="color: #FFD700;"></i>
-                                    <i class="icon_star" style="color: #FFD700;"></i>
-                                    <i class="icon_star-half_alt" style="color: #FFD700;"></i>
-                                    <a href="{{ url_for('payment') }}" class="primary-btn" style="margin-left:200px;">Continue with Payment</a>
-                                </div>
-                        </div>
-
-
-
                     </div>
                 </div>
+            </div>
+            {% endfor %}
 
+            {% if booking|length == 0 %}
+            <div class="col-lg-12">
+                <p style="text-align:center;">No bookings found.</p>
+            </div>
+            {% endif %}
 
-
-
-
-                                <div class="col-lg-12 mb-4">
-                    <div class="room-item d-flex flex-row align-items-start">
-                        <!-- Image column -->
-                        <div class="room-img me-4">
-                            <img src="{{ url_for('static', filename='img/room/room-1.jpg') }}" alt="" style="width: 300px; height: auto; border-radius: 10px;">
-                        </div>
-
-                        <!-- Text/details column -->
-                        <div class="ri-text" style="width: 600px; height: auto;">
-                            <h4>Premium King Room</h4>
-                            <h5>300$<span>Total Price</span></h5>
-                            <p>100$<span>/Per night</span></p>
-                               
-                                 <div class="rating"  style="padding-top:10px;" >
-                                    <span>Rating   </span>
-                                    <i class="icon_star" style="color: #FFD700;"></i>
-                                    <i class="icon_star" style="color: #FFD700;"></i>
-                                    <i class="icon_star" style="color: #FFD700;"></i>
-                                    <i class="icon_star" style="color: #FFD700;"></i>
-                                    <i class="icon_star-half_alt" style="color: #FFD700;"></i>
-                                    <a href="{{ url_for('payment') }}" class="primary-btn" style="margin-left:200px;">Continue with Payment</a>
-                                </div>
-                        </div>
-
-
-
-                    </div>
-                </div>
-
-
-
-
-
-
-
-                <div class="col-lg-12">
-                    <div class="room-pagination">
-                        <a href="#">1</a>
-                        <a href="#">2</a>
-                        <a href="#">Next <i class="fa fa-long-arrow-right"></i></a>
-                    </div>
-                </div>
-            </div>    
         </div>
-    </section>
-    <!-- Rooms Section End -->
+    </div>
+</section>
+<!-- Bookings Section End -->
 
-   {% include 'include/footer.html' %}
+{% include 'include/footer.html' %}

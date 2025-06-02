@@ -1,61 +1,74 @@
 
 {% include 'include/header.html' %}
-
-    <!-- Hero Section Begin -->
-    <section class="hero-section">
-        <div class="container">
-            <div class="row">
-                <div class="col-lg-6">
-                    <div class="hero-text">
-                        <h1>Sona A Luxury Hotel</h1>
-                        <p>Here are the best hotel booking sites, including recommendations for international
-                            travel and for finding low-priced hotel rooms.</p>
-                        <a href="#" class="primary-btn">Discover Now</a>
-                         <!-- Admin Panel Button -->
-                        <a href="{{ url_for('admin_dashboard') }}" class="primary-btn" style="margin-top: 1rem;">Go to Admin Panel</a>
-                    </div>
+<!-- Hero Section Begin -->
+<section class="hero-section">
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-6">
+                <div class="hero-text">
+                    <h1>Sona A Luxury Hotel</h1>
+                    <p>Here are the best hotel booking sites, including recommendations for international
+                        travel and for finding low-priced hotel rooms.</p>
+                    <a href="#" class="primary-btn">Discover Now</a>
+                    <a href="{{ url_for('admin_dashboard') }}" class="primary-btn" style="margin-top: 1rem;">Go to Admin Panel</a>
                 </div>
-                <div class="col-xl-4 col-lg-5 offset-xl-2 offset-lg-1">
-                    <div class="booking-form">
-                        <h3>Booking Your Hotel</h3>
-                        <form action="{{ url_for('rooms') }}">
-                            <div class="check-date">
-                                <label for="date-in">Check In:</label>
-                                <input type="text" class="date-input" id="date-in">
-                                <i class="icon_calendar"></i>
-                            </div>
-                            <div class="check-date">
-                                <label for="date-out">Check Out:</label>
-                                <input type="text" class="date-input" id="date-out">
-                                <i class="icon_calendar"></i>
-                            </div>
-                            <div class="select-option">
-                                <label for="guest">Guests:</label>
-                                <select id="guest">
-                                    <option value="">2 Adults</option>
-                                    <option value="">3 Adults</option>
-                                </select>
-                            </div>
-                            <div class="select-option">
-                                <label for="room">Room:</label>
-                                <select id="room">
-                                    <option value="">1 Room</option>
-                                    <option value="">2 Room</option>
-                                </select>
-                            </div>
-                            <button type="submit">Check Availability</button>
-                        </form>
-                    </div>
+            </div>
+            <div class="col-xl-4 col-lg-5 offset-xl-2 offset-lg-1">
+                <div class="booking-form">
+                    <h3>Booking Your Hotel</h3>
+                    <form method="get" action="{{ url_for('rooms') }}" onsubmit="return validateDates()">
+                        <div class="check-date">
+                            <label for="date-in">Check In:</label>
+                            <input type="date" name="date_in" id="date-in" class="date-input"
+                                   value="{{ request.args.get('date_in', '') }}" required>
+                        </div>
+                        <div class="check-date">
+                            <label for="date-out">Check Out:</label>
+                            <input type="date" name="date_out" id="date-out" class="date-input"
+                                   value="{{ request.args.get('date_out', '') }}" required>
+                        </div>
+                        <div class="select-option">
+                            <label for="guest">Guests:</label>
+                            <select name="guests" id="guest" required>
+                                {% for g in range(1, 6) %}
+                                    <option value="{{ g }}" {% if request.args.get('guests') == g|string %}selected{% endif %}>{{ g }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="select-option">
+                            <label for="room">Room Type:</label>
+                            <select name="room" id="room" required>
+                                <option value="Room" {% if request.args.get('room') == 'Room' %}selected{% endif %}>Room</option>
+                                <option value="Deluxe" {% if request.args.get('room') == 'Deluxe' %}selected{% endif %}>Deluxe</option>
+                                <option value="Suite" {% if request.args.get('room') == 'Suite' %}selected{% endif %}>Suite</option>
+                            </select>
+                        </div>
+                        <button type="submit">Check Availability</button>
+                    </form>
                 </div>
             </div>
         </div>
-        <div class="hero-slider owl-carousel">
-            <div class="hs-item set-bg" data-setbg="{{ url_for('static', filename='img/hero/hero-1.jpg') }}"></div>
-            <div class="hs-item set-bg" data-setbg="{{ url_for('static', filename='img/hero/hero-2.jpg') }}"></div>
-            <div class="hs-item set-bg" data-setbg="{{ url_for('static', filename='img/hero/hero-3.jpg') }}"></div>
-        </div>
-    </section>
-    <!-- Hero Section End -->
+    </div>
+    <div class="hero-slider owl-carousel">
+        <div class="hs-item set-bg" data-setbg="{{ url_for('static', filename='img/hero/hero-1.jpg') }}"></div>
+        <div class="hs-item set-bg" data-setbg="{{ url_for('static', filename='img/hero/hero-2.jpg') }}"></div>
+        <div class="hs-item set-bg" data-setbg="{{ url_for('static', filename='img/hero/hero-3.jpg') }}"></div>
+    </div>
+</section>
+<!-- Hero Section End -->
+
+<script>
+    // Prevent form submission if check-out date is not after check-in date
+    function validateDates() {
+        const checkIn = document.getElementById('date-in').value;
+        const checkOut = document.getElementById('date-out').value;
+        if (checkIn && checkOut && checkIn >= checkOut) {
+            alert('Check-out date must be after check-in date.');
+            return false;
+        }
+        return true;
+    }
+</script>
 
     <!-- About Us Section Begin -->
      
