@@ -88,7 +88,7 @@ CREATE TABLE Payment (
     CVV VARCHAR(5),
     Amount DECIMAL(10,2),
     PRIMARY KEY (BookingID, PaymentNumber),
-    FOREIGN KEY (BookingID) REFERENCES Booking(BookingID)
+    FOREIGN KEY (BookingID) REFERENCES Booking(BookingID) ON DELETE CASCADE
 );
 
 -- Review is weak entity dependent on (CustomerID, HotelID) with composite PK

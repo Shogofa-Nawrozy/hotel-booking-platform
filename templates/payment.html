@@ -9,7 +9,7 @@
                     <img src="{{ url_for('static', filename='img/room/room-details.jpg') }}" alt="">
                     <div class="rd-text">
                         <div class="rd-title">
-                            <h3>Premium King Room</h3>
+                            <h3>Booking #{{ booking_id }}</h3>
                             <div class="rdt-right">
                                 <span> Rating  </span>
                                 <div class="rating">
@@ -21,47 +21,20 @@
                                 </div>
                             </div>
                         </div>
-                        <h2>$300<span>Total Price</span></h2>
-                        <p>$100<span>/Per night</span></p>
-                        <table>
-                            <tbody>
-                                <tr>
-                                    <td class="r-o">Size:</td>
-                                    <td>30 ft</td>
-                                </tr>
-                                <tr>
-                                    <td class="r-o">Capacity:</td>
-                                    <td>Max person 5</td>
-                                </tr>
-                                <tr>
-                                    <td class="r-o">Bed:</td>
-                                    <td>King Beds</td>
-                                </tr>
-                                <tr>
-                                    <td class="r-o">Services:</td>
-                                    <td>Wifi, Television, Bathroom,...</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                        <p class="f-para">Motorhome or Trailer that is the question for you. Here are some of the
-                            advantages and disadvantages of both, so you will be confident when purchasing an RV.
-                            When comparing Rvs, a motorhome or a travel trailer, should you buy a motorhome or fifth
-                            wheeler? The advantages and disadvantages of both are studied so that you can make your
-                            choice wisely when purchasing an RV. Possessing a motorhome or fifth wheel is an
-                            achievement of a lifetime. It can be similar to sojourning with your residence as you
-                            search the various sites of our great land, America.</p>
+                        <h2>${{ booking_total }}<span>Total Price</span></h2>
+                        <!-- Add more booking details here if needed -->
                     </div>
                 </div>
             </div>
 
             <div class="col-xl-4 col-lg-5 offset-xl-2 offset-lg-1">
                 <div class="booking-form">
-                    <h3>Booking Your Hotel</h3>
-                    <form id="payment-form" action="{{ url_for('rooms') }}" method="POST">
+                    <h3>Booking Payment</h3>
+                    <form id="payment-form" method="POST">
 
                         <div class="check-date">
                             <label for="date-in">Payment Date:</label>
-                            <input type="text" id="date-in" class="date-input" name="payment_date" required>
+                            <input type="date" id="date-in" class="date-input" name="payment_date" required>
                             <i class="icon_calendar"></i>
                         </div>
 
@@ -73,7 +46,8 @@
                             </select>
                         </div>
 
-                        <!-- Payment Option: Full or Installments -->
+                        <!-- Payment Option: Only show if no pending payment -->
+                        {% if not pending_amount %}
                         <div class="payment-option">
                             <label>
                                 <input type="radio" name="payment_option" value="full" checked> Pay full amount
@@ -82,18 +56,21 @@
                                 <input type="radio" name="payment_option" value="installment"> Pay in 2 installments
                             </label>
                         </div>
+                        {% endif %}
 
-                        <!-- Payment Amount (read-only, changes based on payment option) -->
+                        <!-- Payment Amount (read-only, changes based on payment option or is fixed for pending) -->
                         <div class="payment-amount-section">
                             <label for="payment-amount">Amount to Pay Now:</label>
-                            <input type="number" id="payment-amount" name="payment_amount" readonly value="300.00" step="0.01">
+                            <input type="number" id="payment-amount" name="payment_amount" readonly
+                                   value="{% if pending_amount %}{{ pending_amount|float|round(2) }}{% else %}{{ booking_total|float|round(2) }}{% endif %}"
+                                   step="0.01">
                         </div>
 
                         <p for="card" style="margin-top:10px;">Cardnumber:</p>
-                        <input id="card" type="text" name="card_number"  maxlength="16" pattern="\d{16}"  style="margin-top:-20px;" required>
+                        <input id="card" type="text" name="card_number" maxlength="16" pattern="\d{16}" required>
 
-                         <p for="expirationdate" style="margin-top:10px;">Expiration (mm/yy)</p>
-                        <input id="expirationdate" type="text" name="expiry_date" pattern="(0[1-9]|1[0-2])\/\d{2}" style="margin-bottom:10px;" required>
+                        <p for="expirationdate" style="margin-top:10px;">Expiration (YYYY-MM-DD)</p>
+                        <input id="expirationdate" type="date" name="expiry_date" required>
                         
                         <p for="cvv" style="margin-top:10px;">CVV</p>
                         <input id="cvv" type="text" name="cvv" maxlength="3" pattern="\d{3}" required>
@@ -111,78 +88,88 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        const bookingTotal = 300.00; // Should be dynamic if possible
+        const bookingTotal = parseFloat('{{ booking_total }}');
+        const pendingAmount = {{ pending_amount if pending_amount is not none else 'null' }};
         const paymentAmountInput = document.getElementById('payment-amount');
         const paymentOptionRadios = document.getElementsByName('payment_option');
         const paymentForm = document.getElementById('payment-form');
         const confirmationMessage = document.getElementById('confirmation-message');
 
         function updatePaymentAmount() {
-            let selectedOption = Array.from(paymentOptionRadios).find(r => r.checked).value;
-            if (selectedOption === 'full') {
-                paymentAmountInput.value = bookingTotal.toFixed(2);
+            if (pendingAmount !== null) {
+                paymentAmountInput.value = pendingAmount.toFixed(2);
             } else {
-                paymentAmountInput.value = (bookingTotal / 2).toFixed(2);
+                let selectedOption = Array.from(paymentOptionRadios).find(r => r.checked).value;
+                if (selectedOption === 'full') {
+                    paymentAmountInput.value = bookingTotal.toFixed(2);
+                } else {
+                    paymentAmountInput.value = (bookingTotal / 2).toFixed(2);
+                }
             }
         }
 
-        paymentOptionRadios.forEach(radio => {
-            radio.addEventListener('change', updatePaymentAmount);
-        });
+        if (!pendingAmount) {
+            paymentOptionRadios.forEach(radio => {
+                radio.addEventListener('change', updatePaymentAmount);
+            });
+        }
 
-        updatePaymentAmount(); // initialize on page load
+        updatePaymentAmount();
 
         paymentForm.addEventListener('submit', function (e) {
             e.preventDefault();
 
-            // Collect form data
             const formData = new FormData(paymentForm);
-            const paymentOption = formData.get('payment_option');
-            const paymentAmountNow = parseFloat(formData.get('payment_amount'));
             const paymentMethod = formData.get('payment_method');
             const paymentDate = formData.get('payment_date');
             const cardNumber = formData.get('card_number');
             const expiryDate = formData.get('expiry_date');
             const cvv = formData.get('cvv');
-
-            // Basic validation
-            if (!paymentDate) {
-                alert('Please enter payment date.');
-                return;
-            }
-
-            // Prepare payments array for backend
-            const bookingID = 101; // Replace with actual booking ID in real scenario
-
             let payments = [];
 
-            payments.push({
-                BookingID: bookingID,
-                PaymentNumber: 1,
-                PaymentMethod: paymentMethod,
-                PaymentDate: paymentDate,
-                Amount: paymentAmountNow,
-                CardNumber: cardNumber,
-                ExpiryDate: expiryDate,
-                CVV: cvv,
-                PaymentStatus: "Completed"
-            });
-
-            if (paymentOption === 'installment') {
+            if (pendingAmount !== null) {
+                // Only pay the pending amount (second installment)
                 payments.push({
-                    BookingID: bookingID,
+                    BookingID: '{{ booking_id }}',
                     PaymentNumber: 2,
                     PaymentMethod: paymentMethod,
-                    PaymentDate: null,
-                    Amount: (bookingTotal - paymentAmountNow),
-                    CardNumber: null,
-                    ExpiryDate: null,
-                    CVV: null,
-                    PaymentStatus: "Pending"
+                    PaymentDate: paymentDate,
+                    Amount: pendingAmount,
+                    CardNumber: cardNumber,
+                    ExpiryDate: expiryDate,
+                    CVV: cvv,
+                    PaymentStatus: "completed"
                 });
+            } else {
+                // Original logic for full or first installment
+                const paymentOption = formData.get('payment_option');
+                const paymentAmountNow = parseFloat(formData.get('payment_amount'));
+                payments.push({
+                    BookingID: '{{ booking_id }}',
+                    PaymentNumber: 1,
+                    PaymentMethod: paymentMethod,
+                    PaymentDate: paymentDate,
+                    Amount: paymentAmountNow,
+                    CardNumber: cardNumber,
+                    ExpiryDate: expiryDate,
+                    CVV: cvv,
+                    PaymentStatus: "completed"
+                });
+                if (paymentOption === 'installment') {
+                    payments.push({
+                        BookingID: '{{ booking_id }}',
+                        PaymentNumber: 2,
+                        PaymentMethod: paymentMethod,
+                        PaymentDate: null,
+                        Amount: (bookingTotal - paymentAmountNow),
+                        CardNumber: null,
+                        ExpiryDate: null,
+                        CVV: null,
+                        PaymentStatus: "pending"
+                    });
+                }
             }
 
-            // Send payments to backend API (replace '{{ url_for("payment") }}' with your actual endpoint)
             fetch('{{ url_for("payment") }}', {
                 method: 'POST',
                 headers: {
@@ -198,9 +185,11 @@
             })
             .then(data => {
                 confirmationMessage.style.display = 'block';
+                confirmationMessage.style.color = 'green';
                 confirmationMessage.textContent = 'Payment processed successfully!';
-                paymentForm.reset();
-                updatePaymentAmount();
+                setTimeout(function() {
+                    window.location.href = "{{ url_for('bookings') }}";
+                }, 1200);
             })
             .catch(error => {
                 confirmationMessage.style.display = 'block';

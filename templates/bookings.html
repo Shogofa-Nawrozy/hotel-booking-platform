@@ -34,19 +34,39 @@
 
                     <!-- Details -->
                     <div class="ri-text" style="width: 600px; height: auto;">
-                        <h4>{{ row.RoomName if row.RoomName else 'Room' }}</h4>
+                        <h4>
+                            {{ row.HotelName }} (Room {{ row.RoomNumber }})
+                        </h4>
                         <h5>{{ row.TotalPrice }}$ <span>Total Price</span></h5>
-                        <p>{{ row.BookingDate if row.BookingDate else 'Date Unknown' }}</p>
-
+                        <p>
+                            <b>Check-in:</b> {{ row.CheckInDate }}<br>
+                            <b>Check-out:</b> {{ row.CheckOutDate }}
+                        </p>
                         <div class="rating" style="padding-top:10px;">
                             <span>Rating</span>
-                            <i class="icon_star" style="color: #FFD700;"></i>
-                            <i class="icon_star" style="color: #FFD700;"></i>
-                            <i class="icon_star" style="color: #FFD700;"></i>
-                            <i class="icon_star" style="color: #FFD700;"></i>
-                            <i class="icon_star-half_alt" style="color: #FFD700;"></i>
-                            <a href="{{ url_for('payment') }}" class="primary-btn" style="margin-left:200px;">Continue with Payment</a>
+                            {% set rating = row.HotelRating or row.ReviewRating or 0 %}
+                            {% for i in range(1, 6) %}
+                                {% if i <= (rating|int) %}
+                                    <i class="icon_star" style="color: #FFD700;"></i>
+                                {% elif i - rating < 1 %}
+                                    <i class="icon_star-half_alt" style="color: #FFD700;"></i>
+                                {% else %}
+                                    <i class="icon_star" style="color: #ccc;"></i>
+                                {% endif %}
+                            {% endfor %}
                         </div>
+                        {% if row.is_paid %}
+    <div style="margin-left:200px; ">
+        <span class="badge bg-success" style="font-size: 1.1em; padding: 10px 24px; border-radius: 20px; display: inline-flex; align-items: center;">
+            <i class="icon_check_alt2" style="font-size: 1.3em; margin-right: 8px;"></i>
+            Paid
+        </span>
+    </div>
+{% elif row.has_pending %}
+    <a href="{{ url_for('payment', booking_id=row.BookingID, booking_total=row.TotalPrice) }}" class="primary-btn" style="margin-left:200px;">Continue with Payment</a>
+{% else %}
+    <a href="{{ url_for('payment', booking_id=row.BookingID, booking_total=row.TotalPrice) }}" class="primary-btn" style="margin-left:200px;">Pay Now</a>
+{% endif %}
                     </div>
                 </div>
             </div>

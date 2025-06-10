@@ -1,10 +1,9 @@
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
 from pymongo import MongoClient
 from datetime import timedelta, datetime
 import subprocess
 import mysql.connector
 import os  # Needed for environment variable access
-from flask import flash
 
 # Create a connection to MariaDB
 def get_db_connection():
@@ -180,47 +179,184 @@ def rooms():
 def rooms_details():
     return render_template('room-details.html')
 
+
+# SHOGOFA CHANGES *********************************************************************************************************************
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM Customer WHERE Username=%s AND Password=%s", (username, password))
+        user = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if user:
+            session['customer_id'] = user['CustomerID']
+            return redirect(url_for('bookings'))
+        else:
+            flash('Invalid username or password.', 'danger')
+    return render_template('login.html')
+
+
 # Booking list
 @app.route('/bookings')
 def bookings():
-    if session.get('active_db') == 'mongodb':
-        data = list(db.booking.find())
-    else:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute('SELECT * FROM Booking;')
-        data = cursor.fetchall()
-        cursor.close()
-        conn.close()
-    return render_template('bookings.html', booking=data)
+    customer_id = session.get('customer_id')
+    if not customer_id:
+        flash("Please log in to view your bookings.", "warning")
+        return redirect(url_for('login'))
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("""
+        SELECT 
+            b.BookingID, b.TotalPrice, b.CheckInDate, b.CheckOutDate,
+            r.RoomNumber, h.Name AS HotelName, h.Rating AS HotelRating,
+            rv.Rating AS ReviewRating
+        FROM Booking b
+        JOIN Contains c ON b.BookingID = c.BookingID
+        JOIN Room r ON c.HotelID = r.HotelID AND c.RoomNumber = r.RoomNumber
+        JOIN Hotel h ON r.HotelID = h.HotelID
+        LEFT JOIN Review rv ON rv.CustomerID = b.CustomerID AND rv.HotelID = h.HotelID
+        WHERE b.CustomerID = %s
+        ORDER BY b.BookingID DESC
+    """, (customer_id,))
+    bookings = cursor.fetchall()
+
+    # Get payment status for each booking
+    for booking in bookings:
+        cursor.execute("SELECT PaymentStatus FROM Payment WHERE BookingID = %s", (booking['BookingID'],))
+        payment_statuses = [row['PaymentStatus'] for row in cursor.fetchall()]
+        if all(status == 'completed' for status in payment_statuses) and payment_statuses:
+            booking['is_paid'] = True
+        else:
+            booking['is_paid'] = False
+        booking['has_pending'] = any(status == 'pending' for status in payment_statuses)
+    cursor.close()
+    conn.close()
+    return render_template('bookings.html', booking=bookings)
 
 # Payments list
-@app.route('/payment')
+@app.route('/payment', methods=['GET', 'POST'])
 def payment():
-    if session.get('active_db') == 'mongodb':
-        data = list(db.payment.find())
-    else:
+    if request.method == 'POST':
+        # Handle AJAX/JSON payment submission
+        data = request.get_json()
+        payments = data.get('payments', [])
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            for payment in payments:
+                cursor.execute("""
+                    INSERT INTO Payment
+                    (BookingID, PaymentNumber, PaymentMethod, PaymentDate, PaymentStatus,
+                     CardNumber, ExpiryDate, CVV, Amount)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        PaymentMethod=VALUES(PaymentMethod),
+                        PaymentDate=VALUES(PaymentDate),
+                        PaymentStatus=VALUES(PaymentStatus),
+                        CardNumber=VALUES(CardNumber),
+                        ExpiryDate=VALUES(ExpiryDate),
+                        CVV=VALUES(CVV),
+                        Amount=VALUES(Amount)
+                """, (
+                    payment['BookingID'],
+                    payment['PaymentNumber'],
+                    payment['PaymentMethod'],
+                    payment['PaymentDate'],
+                    payment['PaymentStatus'],
+                    payment['CardNumber'],
+                    payment['ExpiryDate'],
+                    payment['CVV'],
+                    payment['Amount']
+                ))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"success": True})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    # GET: Show payment page
+    booking_id = request.args.get('booking_id')
+    booking_total = request.args.get('booking_total')
+
+    # Fetch pending payment amount from Payment table
+    pending_amount = None
+    if booking_id:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute('SELECT * FROM Payment;')
-        data = cursor.fetchall()
+        cursor.execute(
+            "SELECT Amount FROM Payment WHERE BookingID = %s AND PaymentStatus = 'pending' LIMIT 1",
+            (booking_id,)
+        )
+        row = cursor.fetchone()
         cursor.close()
         conn.close()
-    return render_template('payment.html', payment=data)
+        if row:
+            pending_amount = float(row['Amount'])
+
+    # Convert booking_total to float
+    try:
+        booking_total = float(booking_total)
+    except (TypeError, ValueError):
+        booking_total = 0.0
+
+    return render_template(
+        'payment.html',
+        booking_id=booking_id,
+        booking_total=booking_total,
+        pending_amount=pending_amount
+    )
+
 
 # Booking report page
-@app.route('/booking_report')
+@app.route('/booking_report', methods=['GET', 'POST'])
 def booking_report():
-    if session.get('active_db') == 'mongodb':
-        data = list(db.booking.find())
-    else:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute('SELECT * FROM Booking;')
-        data = cursor.fetchall()
-        cursor.close()
-        conn.close()
-    return render_template('booking_report.html', report=data)
+    filter_date = None
+    if request.method == 'POST':
+        filter_date = request.form.get('date')
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("""
+        SELECT
+            c.Name AS CustomerName,
+            h.Name AS HotelName,
+            COUNT(DISTINCT b.BookingID) AS NumBookings,
+            COALESCE(SUM(p.Amount), 0) AS TotalSpent
+        FROM Booking b
+        JOIN Customer c ON b.CustomerID = c.CustomerID
+        JOIN Contains co ON b.BookingID = co.BookingID
+        JOIN Hotel h ON co.HotelID = h.HotelID
+        LEFT JOIN Payment p ON b.BookingID = p.BookingID
+        WHERE (%s IS NULL OR b.CheckInDate = %s)
+        GROUP BY c.Name, h.Name
+        ORDER BY c.Name, h.Name
+    """, (filter_date, filter_date))
+    report = cursor.fetchall()
+
+    # Summary: total customers and total revenue
+    cursor.execute("SELECT COUNT(DISTINCT CustomerID) AS TotalCustomers FROM Booking")
+    total_customers = cursor.fetchone()['TotalCustomers']
+    cursor.execute("SELECT COALESCE(SUM(Amount), 0) AS TotalRevenue FROM Payment")
+    total_revenue = cursor.fetchone()['TotalRevenue']
+
+    cursor.close()
+    conn.close()
+    return render_template(
+        'booking_report.html',
+        report=report,
+        total_customers=total_customers,
+        total_revenue=total_revenue,
+        filter_date=filter_date
+    )
+
+
+#*********************************************************************************************************************************
 
 # Static pages
 @app.route('/about')
@@ -329,6 +465,7 @@ def api_payments():
     for d in data:
         d['_id'] = str(d['_id'])
     return jsonify(data)
+
 
 # Run the application with debug mode
 if __name__ == "__main__":

@@ -123,26 +123,27 @@ table{
     </tr>
   </thead>
   <tbody>
+    {% for row in report %}
     <tr>
-      <th>Title</th>
-      <td>Content</td>
-      <td>Content</td>
-      <td>Content</td>
+      <th>{{ row.CustomerName }}</th>
+      <td>{{ row.HotelName }}</td>
+      <td>{{ row.NumBookings }}</td>
+      <td>${{ row.TotalSpent|round(2) }}</td>
     </tr>
+  {% endfor %}
+  {% if report|length == 0 %}
     <tr>
-      <th>Title</th>
-      <td>Content</td>
-      <td>Content</td>
-      <td>Content</td>
+      <td colspan="4" style="text-align:center;">No data for selected date.</td>
     </tr>
-   </tbody>
+  {% endif %}
+  </tbody>
 </table>
 
 <div style="margin-top:50px;">
-   <p >Summary:  </p>
-  <p>- Total Customers: 12 </p>
-  <p>- Total Revenue: $10,500.00 </p>
- <div>
+   <p>Summary:</p>
+   <p>- Total Customers: {{ total_customers }}</p>
+   <p>- Total Revenue: ${{ total_revenue|round(2) }}</p>
+</div>
 
 
 

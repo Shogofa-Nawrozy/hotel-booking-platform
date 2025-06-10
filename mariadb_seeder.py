@@ -119,18 +119,39 @@ for booking_id in range(1, NUM_BOOKINGS + 1):
         VALUES ({booking_id}, {hid}, '{rnum}');
         """)
 
-    for payment_num in range(1, random.randint(2, MAX_PAYMENTS_PER_BOOKING + 1)):
+    # Payment logic: randomly choose full or installment
+    is_installment = random.choice([True, False])
+    if is_installment:
+        # Two payments, each half the total price
+        half_amount = round(total_price / 2, 2)
+        # First payment: completed
         method = random.choice(['Credit Card', 'Debit Card'])
-        pay_date = fake.date_between(start_date='-6M', end_date='today')
-        status = random.choice(['pending', 'completed', 'failed'])
+        pay_date = fake.date_between(start_date=checkin, end_date=checkout)
         card = fake.credit_card_number()
         exp = fake.date_between(start_date='today', end_date='+3y')
         cvv = str(random.randint(100, 999))
-        amount = round(random.uniform(150, 1500), 2)
         seed_sql.append(f"""
         INSERT INTO Payment (BookingID, PaymentNumber, PaymentMethod, PaymentDate, PaymentStatus,
         CardNumber, ExpiryDate, CVV, Amount)
-        VALUES ({booking_id}, {payment_num}, '{method}', '{pay_date}', '{status}', '{card}', '{exp}', '{cvv}', {amount});
+        VALUES ({booking_id}, 1, '{method}', '{pay_date}', 'completed', '{card}', '{exp}', '{cvv}', {half_amount});
+        """)
+        # Second payment: pending, no card info yet
+        seed_sql.append(f"""
+        INSERT INTO Payment (BookingID, PaymentNumber, PaymentMethod, PaymentDate, PaymentStatus,
+        CardNumber, ExpiryDate, CVV, Amount)
+        VALUES ({booking_id}, 2, '{method}', NULL, 'pending', NULL, NULL, NULL, {half_amount});
+        """)
+    else:
+        # Full payment, one row
+        method = random.choice(['Credit Card', 'Debit Card'])
+        pay_date = fake.date_between(start_date=checkin, end_date=checkout)
+        card = fake.credit_card_number()
+        exp = fake.date_between(start_date='today', end_date='+3y')
+        cvv = str(random.randint(100, 999))
+        seed_sql.append(f"""
+        INSERT INTO Payment (BookingID, PaymentNumber, PaymentMethod, PaymentDate, PaymentStatus,
+        CardNumber, ExpiryDate, CVV, Amount)
+        VALUES ({booking_id}, 1, '{method}', '{pay_date}', 'completed', '{card}', '{exp}', '{cvv}', {total_price});
         """)
 
 # ✅ Reviews
