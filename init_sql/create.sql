@@ -58,7 +58,7 @@ CREATE TABLE SuiteRoom (
 );
 
 CREATE TABLE Booking (
-    BookingID INT PRIMARY KEY,
+    BookingID INT AUTO_INCREMENT PRIMARY KEY,
     CheckInDate DATE,
     CheckOutDate DATE,
     TotalPrice DECIMAL(10,2),

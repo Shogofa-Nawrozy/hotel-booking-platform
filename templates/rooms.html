@@ -73,7 +73,7 @@
                                 </tr>
                             </tbody>
                         </table>
-                        <a href="{{ url_for('rooms_details') }}" class="primary-btn">More Details</a>
+                        <a href="{{ url_for('start_booking', room_number=room.RoomNumber, checkin=checkin, checkout=checkout) }}" class="primary-btn">Book Now</a>
                     </div>
                 </div>
             </div>

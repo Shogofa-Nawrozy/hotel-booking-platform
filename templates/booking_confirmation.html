@@ -1,0 +1,56 @@
+{% include 'include/header.html' %}
+
+<!-- Breadcrumb Section Begin -->
+<div class="breadcrumb-section">
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-12">
+                <div class="breadcrumb-text">
+                    <h2>Booking Confirmation</h2>
+                    <div class="bt-option">
+                        <a href="{{ url_for('index') }}">Home</a>
+                        <span>Confirmation</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Breadcrumb Section End -->
+
+<!-- Booking Confirmation Section Begin -->
+<section class="rooms-section spad">
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-lg-10">
+                <div class="room-item d-flex flex-row align-items-start">
+                    <!-- Image -->
+                    <div class="room-img me-4">
+                        <img src="{{ url_for('static', filename='img/room/room-1.jpg') }}" alt="Room Image"
+                             style="width: 300px; height: auto; border-radius: 10px;">
+                    </div>
+
+                    <!-- Confirmation Details -->
+                    <div class="ri-text" style="width: 600px; height: auto;">
+                        <h4>
+                            {{ hotel.Name if hotel else booking.HotelName }} (Room {{ room.RoomNumber if room else booking.RoomNumber }})
+                        </h4>
+                        <h5>{{ booking.TotalPrice }}$ <span>Total Price</span></h5>
+                        <p>
+                            <b>Check-in:</b> {{ booking.CheckinDate if booking.CheckinDate else booking.CheckInDate }}<br>
+                            <b>Check-out:</b> {{ booking.CheckOutDate }}
+                        </p>
+
+                        <div class="mt-4">
+                            <a href="{{ url_for('payment', booking_id=booking.BookingID if booking.BookingID else booking._id|string, booking_total=booking.TotalPrice) }}"
+                               class="primary-btn">Continue with Payment</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+<!-- Booking Confirmation Section End -->
+
+{% include 'include/footer.html' %}

@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
 from pymongo import MongoClient
 from datetime import timedelta, datetime
+from urllib.parse import urlparse, urljoin, quote, unquote, urlencode
 import subprocess
 import mysql.connector
 import os  # Needed for environment variable access
@@ -34,6 +35,7 @@ db = client["hotel-booking-platform"]
 app = Flask(__name__)
 app.secret_key = 'verysecretkey'
 app.permanent_session_lifetime = timedelta(minutes=30)
+
 
 # Homepage with filters
 @app.route('/')
@@ -179,26 +181,66 @@ def rooms():
 def rooms_details():
     return render_template('room-details.html')
 
+def is_safe_url(target):
+    ref_url = urlparse(request.host_url)
+    test_url = urlparse(urljoin(request.host_url, target))
+    return test_url.scheme in ('http', 'https') and ref_url.netloc == test_url.netloc
 
 # SHOGOFA CHANGES *********************************************************************************************************************
+
+# NELIN made some changes in the login funciton
+import urllib.parse
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    next_url = request.args.get('next') or request.form.get('next')
+
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM Customer WHERE Username=%s AND Password=%s", (username, password))
-        user = cursor.fetchone()
-        cursor.close()
-        conn.close()
+
+        db_type = session.get('active_db', 'mariadb')
+        user = None
+
+        if db_type == 'mongodb':
+            user = db.customer.find_one({'Username': username, 'Password': password})
+            if user:
+                session['customer_id'] = str(user['CustomerID'])
+        else:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT * FROM Customer WHERE Username=%s AND Password=%s", (username, password))
+            user = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            if user:
+                session['customer_id'] = user['CustomerID']
+
         if user:
-            session['customer_id'] = user['CustomerID']
-            return redirect(url_for('bookings'))
+            # If there is a pending booking (unauthenticated attempt), handle it
+            pending = session.pop('pending_booking', None)
+            if pending:
+                return redirect(url_for(
+                    'complete_booking',
+                    room_number=pending['room_number'],
+                    checkin=pending['checkin'],
+                    checkout=pending['checkout']
+                ))
+
+            # Decode and verify `next_url` properly (double decoding)
+            if next_url:
+                try:
+                    next_url = urllib.parse.unquote(urllib.parse.unquote(next_url))
+                except:
+                    pass
+                if is_safe_url(next_url):
+                    return redirect(next_url)
+
+            return redirect(url_for('bookings'))  # fallback
         else:
             flash('Invalid username or password.', 'danger')
-    return render_template('login.html')
 
+    return render_template('login.html', next=next_url)
 
 # Booking list
 @app.route('/bookings')
@@ -354,6 +396,180 @@ def booking_report():
         total_revenue=total_revenue,
         filter_date=filter_date
     )
+
+
+# NELIN CHANGES *********************************************************************************************************************
+
+@app.route('/start-booking/<room_number>')
+def start_booking(room_number):
+    checkin = request.args.get('checkin')
+    checkout = request.args.get('checkout')
+
+    if 'customer_id' not in session:
+        session['pending_booking'] = {
+            'room_number': room_number,
+            'checkin': checkin,
+            'checkout': checkout
+        }
+
+        next_path = url_for('start_booking', room_number=room_number) + '?' + urlencode({
+            'checkin': checkin,
+            'checkout': checkout
+        })
+        return redirect(url_for('login', next=quote(next_path)))
+
+
+
+    return redirect(url_for(
+        'complete_booking',
+        room_number=room_number,
+        checkin=checkin,
+        checkout=checkout
+    ))
+
+@app.route('/complete-booking')
+def complete_booking():
+    customer_id = session.get('customer_id')
+    if not customer_id:
+        flash("Login required.", "warning")
+        return redirect(url_for('login'))
+
+    room_number = request.args.get('room_number')
+    checkin = request.args.get('checkin')
+    checkout = request.args.get('checkout')
+
+    if not all([room_number, checkin, checkout]):
+        flash("Missing booking data.", "danger")
+        return redirect(url_for('index'))
+
+    db_type = session.get('active_db', 'mariadb')
+
+    if db_type == 'mongodb':
+        try:
+            nights = (datetime.strptime(checkout, "%Y-%m-%d") - datetime.strptime(checkin, "%Y-%m-%d")).days
+            room = db.room.find_one({"RoomNumber": room_number})
+            if not room:
+                flash("Room not found.", "danger")
+                return redirect(url_for('index'))
+
+            total_price = room.get("PricePerNight", 0) * nights
+
+            booking = {
+                "CustomerID": customer_id,
+                "CheckinDate": checkin,
+                "CheckOutDate": checkout,
+                "TotalPrice": total_price
+            }
+            booking_result = db.booking.insert_one(booking)
+
+            db.contains.insert_one({
+                "BookingID": booking_result.inserted_id,
+                "RoomNumber": room_number,
+                "HotelID": room["HotelID"]
+            })
+
+            flash("Booking successful! (MongoDB)", "success")
+            return redirect(url_for('booking_confirmation', booking_id=str(booking_result.inserted_id)))
+
+        except Exception as e:
+            flash(f"MongoDB Booking Error: {str(e)}", "danger")
+            return redirect(url_for('index'))
+
+    else:
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute("SELECT PricePerNight, HotelID FROM Room WHERE RoomNumber = %s", (room_number,))
+            room = cursor.fetchone()
+
+            if not room:
+                flash("Room not found in Room table.", "danger")
+                cursor.close()
+                conn.close()
+                return redirect(url_for('index'))
+
+            nights = (datetime.strptime(checkout, "%Y-%m-%d") - datetime.strptime(checkin, "%Y-%m-%d")).days
+            total_price = room['PricePerNight'] * nights
+            print("💰 Calculated total_price:", total_price)
+
+            cursor.execute("""
+                INSERT INTO Booking (CustomerID, CheckInDate, CheckOutDate, TotalPrice)
+                VALUES (%s, %s, %s, %s)
+            """, (customer_id, checkin, checkout, total_price))
+            booking_id = cursor.lastrowid
+
+            cursor.execute("""
+                INSERT INTO Contains (BookingID, HotelID, RoomNumber)
+                VALUES (%s, %s, %s)
+            """, (booking_id, room['HotelID'], room_number))
+        
+            conn.commit()
+            cursor.close()
+            conn.close()
+
+            flash("Booking successful! (MariaDB)", "success")
+            return redirect(url_for('booking_confirmation', booking_id=booking_id))
+
+        except Exception as e:
+            print("Exception in complete_booking():", str(e))
+            flash(f"MariaDB Booking Error: {str(e)}", "danger")
+            return redirect(url_for('index'))
+
+        
+@app.route('/booking-confirmation')
+def booking_confirmation():
+    booking_id = request.args.get('booking_id')
+    if not booking_id:
+        flash("Missing booking ID", "danger")
+        return redirect(url_for('index'))
+
+    db_type = session.get('active_db', 'mariadb')
+    customer_id = session.get('customer_id')
+
+    if db_type == 'mongodb':
+        from bson import ObjectId
+        booking = db.booking.find_one({"_id": ObjectId(booking_id), "CustomerID": customer_id})
+        contains = db.contains.find_one({"BookingID": ObjectId(booking_id)})
+
+        if not booking or not contains:
+            flash("Booking not found", "danger")
+            return redirect(url_for('index'))
+
+        room = db.room.find_one({"RoomNumber": contains["RoomNumber"]})
+        hotel = db.hotel.find_one({"HotelID": contains["HotelID"]})
+
+        return render_template("booking_confirmation.html", booking=booking, room=room, hotel=hotel)
+
+    else:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT b.BookingID, b.TotalPrice, b.CheckInDate, b.CheckOutDate,
+                r.RoomNumber, h.Name AS HotelName
+            FROM Booking b
+            JOIN Contains c ON b.BookingID = c.BookingID
+            JOIN Room r ON c.RoomNumber = r.RoomNumber AND c.HotelID = r.HotelID
+            JOIN Hotel h ON r.HotelID = h.HotelID
+            WHERE b.BookingID = %s AND b.CustomerID = %s
+        """, (booking_id, customer_id))
+
+        booking = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not booking:
+            flash("Booking not found", "danger")
+            return redirect(url_for('index'))
+
+        return render_template("booking_confirmation.html", booking=booking)
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    flash("You have been logged out.", "info")
+    return redirect(url_for('index'))
 
 
 #*********************************************************************************************************************************
