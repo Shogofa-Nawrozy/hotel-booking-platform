@@ -187,8 +187,6 @@ def is_safe_url(target):
     return test_url.scheme in ('http', 'https') and ref_url.netloc == test_url.netloc
 
 # SHOGOFA CHANGES *********************************************************************************************************************
-
-# NELIN made some changes in the login funciton
 import urllib.parse
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -215,6 +213,7 @@ def login():
             conn.close()
             if user:
                 session['customer_id'] = user['CustomerID']
+                session['first_name'] = user['FirstName']  
 
         if user:
             # If there is a pending booking (unauthenticated attempt), handle it
@@ -227,16 +226,8 @@ def login():
                     checkout=pending['checkout']
                 ))
 
-            # Decode and verify `next_url` properly (double decoding)
-            if next_url:
-                try:
-                    next_url = urllib.parse.unquote(urllib.parse.unquote(next_url))
-                except:
-                    pass
-                if is_safe_url(next_url):
-                    return redirect(next_url)
-
-            return redirect(url_for('bookings'))  # fallback
+            # Always redirect to homepage after login
+            return redirect(url_for('index'))
         else:
             flash('Invalid username or password.', 'danger')
 
@@ -245,40 +236,108 @@ def login():
 # Booking list
 @app.route('/bookings')
 def bookings():
+    db_type = session.get('active_db', 'mariadb')
     customer_id = session.get('customer_id')
     if not customer_id:
         flash("Please log in to view your bookings.", "warning")
         return redirect(url_for('login'))
 
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("""
-        SELECT 
-            b.BookingID, b.TotalPrice, b.CheckInDate, b.CheckOutDate,
-            r.RoomNumber, h.Name AS HotelName, h.Rating AS HotelRating,
-            rv.Rating AS ReviewRating
-        FROM Booking b
-        JOIN Contains c ON b.BookingID = c.BookingID
-        JOIN Room r ON c.HotelID = r.HotelID AND c.RoomNumber = r.RoomNumber
-        JOIN Hotel h ON r.HotelID = h.HotelID
-        LEFT JOIN Review rv ON rv.CustomerID = b.CustomerID AND rv.HotelID = h.HotelID
-        WHERE b.CustomerID = %s
-        ORDER BY b.BookingID DESC
-    """, (customer_id,))
-    bookings = cursor.fetchall()
+    if db_type == 'mongodb':
+        bookings = []
+        for b in db.booking.find({"CustomerID": int(customer_id)}):
+            # Get rooms for this booking
+            contains = list(db.contains.find({"BookingID": b["BookingID"]}))
+            rooms = []
+            hotels = set()
+            for c in contains:
+                room = db.room.find_one({"RoomNumber": c["RoomNumber"], "HotelID": c["HotelID"]})
+                hotel = db.hotel.find_one({"HotelID": c["HotelID"]})
+                if room and hotel:
+                    rooms.append({
+                        "RoomNumber": room["RoomNumber"],
+                        "HotelName": hotel["Name"],
+                        "PricePerNight": room["PricePerNight"]
+                    })
+                    hotels.add(hotel["Name"])
+            # Payment status
+            payments = b.get("payments", [])
+            is_paid = all(p["PaymentStatus"] == "completed" for p in payments) and payments
+            has_pending = any(p["PaymentStatus"] == "pending" for p in payments)
+            pending_amount = sum(p["Amount"] for p in payments if p["PaymentStatus"] == "pending")
+            bookings.append({
+                "BookingID": b["BookingID"],
+                "TotalPrice": b["TotalPrice"],
+                "CheckInDate": b["CheckInDate"],
+                "CheckOutDate": b["CheckOutDate"],
+                "Rooms": rooms,
+                "Hotels": list(hotels),
+                "NumRooms": len(rooms),
+                "is_paid": is_paid,
+                "has_pending": has_pending,
+                "PendingAmount": pending_amount
+            })
+        return render_template('bookings.html', bookings=bookings)
+    else:
+        # MariaDB logic
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT 
+                b.BookingID, b.TotalPrice, b.CheckInDate, b.CheckOutDate,
+                r.RoomNumber, r.PricePerNight, h.Name AS HotelName, h.Rating AS HotelRating,
+                rv.Rating AS ReviewRating
+            FROM Booking b
+            JOIN Contains c ON b.BookingID = c.BookingID
+            JOIN Room r ON c.HotelID = r.HotelID AND c.RoomNumber = r.RoomNumber
+            JOIN Hotel h ON r.HotelID = h.HotelID
+            LEFT JOIN (
+                            SELECT CustomerID, HotelID, MAX(Rating) AS Rating
+                            FROM Review
+                            GROUP BY CustomerID, HotelID
+                        ) rv ON rv.CustomerID = b.CustomerID AND rv.HotelID = h.HotelID
+            WHERE b.CustomerID = %s
+            ORDER BY b.BookingID DESC
+        """, (customer_id,))
+        rows = cursor.fetchall()
 
-    # Get payment status for each booking
-    for booking in bookings:
-        cursor.execute("SELECT PaymentStatus FROM Payment WHERE BookingID = %s", (booking['BookingID'],))
-        payment_statuses = [row['PaymentStatus'] for row in cursor.fetchall()]
-        if all(status == 'completed' for status in payment_statuses) and payment_statuses:
-            booking['is_paid'] = True
-        else:
-            booking['is_paid'] = False
-        booking['has_pending'] = any(status == 'pending' for status in payment_statuses)
-    cursor.close()
-    conn.close()
-    return render_template('bookings.html', booking=bookings)
+        # Group by BookingID
+        bookings_dict = {}
+        for row in rows:
+            bid = row['BookingID']
+            if bid not in bookings_dict:
+                bookings_dict[bid] = {
+                    'BookingID': bid,
+                    'TotalPrice': row['TotalPrice'],
+                    'CheckInDate': row['CheckInDate'],
+                    'CheckOutDate': row['CheckOutDate'],
+                    'Rooms': [],
+                    'Hotels': set(),
+                }
+            bookings_dict[bid]['Rooms'].append({
+                'RoomNumber': row['RoomNumber'],
+                'HotelName': row['HotelName'],
+                'PricePerNight': row['PricePerNight'],
+                'HotelRating': row['HotelRating'],
+                'ReviewRating': row['ReviewRating'],
+            })
+            bookings_dict[bid]['Hotels'].add(row['HotelName'])
+
+        # Add payment status
+        for booking in bookings_dict.values():
+            cursor.execute("SELECT PaymentStatus, Amount FROM Payment WHERE BookingID = %s", (booking['BookingID'],))
+            payment_rows = cursor.fetchall()
+            booking['is_paid'] = all(row['PaymentStatus'] == 'completed' for row in payment_rows) and payment_rows
+            booking['has_pending'] = any(row['PaymentStatus'] == 'pending' for row in payment_rows)
+            booking['NumRooms'] = len(booking['Rooms'])
+            booking['Hotels'] = list(booking['Hotels'])
+            # Calculate pending amount
+            booking['PendingAmount'] = sum(row['Amount'] for row in payment_rows if row['PaymentStatus'] == 'pending')
+
+        cursor.close()
+        conn.close()
+        bookings = list(bookings_dict.values())
+        return render_template('bookings.html', bookings=bookings)
+
 
 # Payments list
 @app.route('/payment', methods=['GET', 'POST'])
@@ -358,33 +417,45 @@ def payment():
 # Booking report page
 @app.route('/booking_report', methods=['GET', 'POST'])
 def booking_report():
-    filter_date = None
+    from_date = to_date = None
     if request.method == 'POST':
-        filter_date = request.form.get('date')
+        from_date = request.form.get('from_date')
+        to_date = request.form.get('to_date')
 
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     cursor.execute("""
-        SELECT
-            c.Name AS CustomerName,
+        SELECT 
+            CONCAT(c.FirstName, ' ', c.LastName) AS CustomerName,
             h.Name AS HotelName,
             COUNT(DISTINCT b.BookingID) AS NumBookings,
+            COUNT(DISTINCT co.RoomNumber) AS NumRooms,
             COALESCE(SUM(p.Amount), 0) AS TotalSpent
-        FROM Booking b
-        JOIN Customer c ON b.CustomerID = c.CustomerID
+        FROM Customer c
+        JOIN Booking b ON c.CustomerID = b.CustomerID
         JOIN Contains co ON b.BookingID = co.BookingID
         JOIN Hotel h ON co.HotelID = h.HotelID
         LEFT JOIN Payment p ON b.BookingID = p.BookingID
-        WHERE (%s IS NULL OR b.CheckInDate = %s)
-        GROUP BY c.Name, h.Name
-        ORDER BY c.Name, h.Name
-    """, (filter_date, filter_date))
+        WHERE (%s IS NULL OR %s IS NULL OR (b.CheckInDate BETWEEN %s AND %s))
+        GROUP BY c.CustomerID, h.HotelID, c.FirstName, c.LastName, h.Name
+        ORDER BY CustomerName, HotelName
+    """, (from_date, to_date, from_date, to_date))
     report = cursor.fetchall()
 
-    # Summary: total customers and total revenue
-    cursor.execute("SELECT COUNT(DISTINCT CustomerID) AS TotalCustomers FROM Booking")
+    # Summary: total customers and total revenue in the filtered range
+    cursor.execute("""
+        SELECT COUNT(DISTINCT b.CustomerID) AS TotalCustomers
+        FROM Booking b
+        WHERE (%s IS NULL OR %s IS NULL OR (b.CheckInDate BETWEEN %s AND %s))
+    """, (from_date, to_date, from_date, to_date))
     total_customers = cursor.fetchone()['TotalCustomers']
-    cursor.execute("SELECT COALESCE(SUM(Amount), 0) AS TotalRevenue FROM Payment")
+
+    cursor.execute("""
+        SELECT COALESCE(SUM(p.Amount), 0) AS TotalRevenue
+        FROM Payment p
+        JOIN Booking b ON p.BookingID = b.BookingID
+        WHERE (%s IS NULL OR %s IS NULL OR (b.CheckInDate BETWEEN %s AND %s))
+    """, (from_date, to_date, from_date, to_date))
     total_revenue = cursor.fetchone()['TotalRevenue']
 
     cursor.close()
@@ -394,7 +465,8 @@ def booking_report():
         report=report,
         total_customers=total_customers,
         total_revenue=total_revenue,
-        filter_date=filter_date
+        from_date=from_date,
+        to_date=to_date
     )
 
 
@@ -614,7 +686,8 @@ def migrate_sql_to_nosql():
     try:
         result = subprocess.run(["python", "migrate_sql_to_nosql.py"], capture_output=True, text=True)
         if result.returncode == 0:
-            return render_template("admin.html", message="✅ Data successfully migrated from MariaDB to MongoDB.")
+            session['active_db'] = 'mongodb'  # Automatically switch
+            return render_template("admin.html", message="✅ Data migrated and MongoDB activated.")
         else:
             return render_template("admin.html", message=f"❌ Migration Error: {result.stderr}")
     except Exception as e:
