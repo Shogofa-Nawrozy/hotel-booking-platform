@@ -1,0 +1,58 @@
+{% include 'include/header.html' %}
+
+<!-- Breadcrumb Section Begin -->
+<div class="breadcrumb-section">
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-12">
+                <div class="breadcrumb-text">
+                    <h2>Room Booking Report</h2>
+                    <div class="bt-option">
+                        <a href="{{ url_for('index') }}">Home</a>
+                        <span>Analytics</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Breadcrumb Section End -->
+
+<!-- Report Section Begin -->
+<section class="rooms-section spad">
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-lg-10">
+                <div class="room-item">
+                    <div class="ri-text">
+                        <h4>Room Booking Duration Report</h4>
+                        <p>This report shows how many bookings are longer than 5 days vs. 5 days or less, including suite bookings.</p>
+
+                        <!-- Analytics Table -->
+                        <table class="table table-bordered mt-4">
+                            <thead class="thead-dark">
+                                <tr>
+                                    <th>Duration Category</th>
+                                    <th>Number of Suite Bookings</th>
+                                    <th>Number of Total Bookings</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in report_data %}
+                                <tr>
+                                    <td>{{ row.DurationCategory }}</td>
+                                    <td>{{ row.NumSuiteBookings }}</td>
+                                    <td>{{ row.TotalBookings }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+<!-- Report Section End -->
+
+{% include 'include/footer.html' %}

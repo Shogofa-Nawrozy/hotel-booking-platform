@@ -644,6 +644,75 @@ def logout():
     return redirect(url_for('index'))
 
 
+@app.route('/room_report', methods=['GET', 'POST'])
+def room_report():
+    db_type = session.get('active_db', 'mariadb')
+
+    if db_type == 'mongodb':
+        # MongoDB: Generate the report for bookings longer than 5 days vs. 5 days or less
+        pipeline = [
+            {
+                "$project": {
+                    "DurationCategory": {
+                        "$cond": {
+                            "if": {"$gt": [{"$subtract": ["$CheckOutDate", "$CheckInDate"]}, 5]},
+                            "then": "More than 5 days",
+                            "else": "5 days or less"
+                        }
+                    },
+                    "RoomNumber": 1
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$DurationCategory",
+                    "NumBookings": {"$sum": 1},
+                    "NumSuites": {
+                        "$sum": {
+                            "$cond": [{"$in": ["$RoomNumber", ["Suite"]]}, 1, 0]
+                        }
+                    },
+                    "TotalBookings": {"$sum": 1}
+                }
+            }
+        ]
+        
+        # Perform aggregation
+        results = db.booking.aggregate(pipeline)
+        report_data = list(results)
+
+    else:
+        # MariaDB Query for Room Booking Duration Report (Total Bookings and Suite Bookings)
+        query = """
+            SELECT 
+                CASE
+                    WHEN DATEDIFF(CheckOutDate, CheckInDate) > 5 THEN 'More than 5 days'
+                    ELSE '5 days or less'
+                END AS DurationCategory,
+                COUNT(*) AS NumBookings,
+                COUNT(DISTINCT CASE WHEN sr.RoomNumber IS NOT NULL THEN b.BookingID END) AS NumSuiteBookings,
+                COUNT(*) AS TotalBookings
+            FROM Booking b
+            JOIN Contains c ON b.BookingID = c.BookingID
+            JOIN Room r ON c.RoomNumber = r.RoomNumber
+            LEFT JOIN SuiteRoom sr ON r.RoomNumber = sr.RoomNumber
+            LEFT JOIN DeluxeRoom dr ON r.RoomNumber = dr.RoomNumber
+            WHERE b.CheckInDate IS NOT NULL AND b.CheckOutDate IS NOT NULL
+            GROUP BY DurationCategory
+            ORDER BY DurationCategory;
+        """
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(query)
+        report_data = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+    return render_template('room_report.html', report_data=report_data)
+
+
+
 #*********************************************************************************************************************************
 
 # Static pages
