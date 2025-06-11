@@ -65,6 +65,7 @@ for i in range(1, NUM_CUSTOMERS + 1):
 # ✅ Insert Rooms and Subtypes
 seed_sql.append("-- Insert Rooms and Room Subtypes")
 room_numbers = {}
+room_price_lookup = {}  # Lookup for room prices
 for hotel_id in range(1, NUM_HOTELS + 1):
     room_numbers[hotel_id] = []
     for room_index in range(1, NUM_ROOMS_PER_HOTEL + 1):
@@ -79,6 +80,9 @@ for hotel_id in range(1, NUM_HOTELS + 1):
         INSERT INTO Room (HotelID, RoomNumber, RoomFloor, PricePerNight, MaxGuests, Status)
         VALUES ({hotel_id}, '{room_num}', {floor}, {price}, {guests}, '{status}');
         """)
+
+        # Add to room price lookup
+        room_price_lookup[(hotel_id, room_num)] = price
 
         if random.choice([True, False]):
             seed_sql.append(f"""
@@ -97,15 +101,11 @@ used_room_combos = set()
 for booking_id in range(1, NUM_BOOKINGS + 1):
     customer_id = random.randint(1, NUM_CUSTOMERS)
     checkin = fake.date_between(start_date='-6M', end_date='-1d')
-    checkout = checkin + timedelta(days=random.randint(1, 10))
-    total_price = round(random.uniform(300, 3000), 2)
+    num_nights = random.randint(1, 10)
+    checkout = checkin + timedelta(days=num_nights)
 
-    seed_sql.append(f"""
-    INSERT INTO Booking (BookingID, CheckInDate, CheckOutDate, TotalPrice, CustomerID)
-    VALUES ({booking_id}, '{checkin}', '{checkout}', {total_price}, {customer_id});
-    """)
-
-    # Ensure no duplicate (BookingID, HotelID, RoomNumber)
+    # Pick rooms for this booking
+    room_choices = []
     for _ in range(random.randint(1, MAX_ROOMS_PER_BOOKING)):
         while True:
             hid = random.randint(1, NUM_HOTELS)
@@ -113,7 +113,19 @@ for booking_id in range(1, NUM_BOOKINGS + 1):
             combo = (booking_id, hid, rnum)
             if combo not in used_room_combos:
                 used_room_combos.add(combo)
+                room_choices.append((hid, rnum))
                 break
+
+    # Calculate total price: sum of all room prices per night × number of nights
+    room_prices = [room_price_lookup[(hid, rnum)] for hid, rnum in room_choices]
+    total_price = round(sum(room_prices) * num_nights, 2)
+
+    seed_sql.append(f"""
+    INSERT INTO Booking (BookingID, CheckInDate, CheckOutDate, TotalPrice, CustomerID)
+    VALUES ({booking_id}, '{checkin}', '{checkout}', {total_price}, {customer_id});
+    """)
+
+    for hid, rnum in room_choices:
         seed_sql.append(f"""
         INSERT INTO Contains (BookingID, HotelID, RoomNumber)
         VALUES ({booking_id}, {hid}, '{rnum}');

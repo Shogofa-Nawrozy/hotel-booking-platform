@@ -95,16 +95,22 @@
                     </div>
                     <div class="col-lg-6">
                         <div class="tn-right">
-                            <a href="#" class="bk-btn">Booking Now</a>
+                           
                             <div class="language-option">
                                 <img src="{{ url_for('static', filename='img/flag.jpg') }}" alt="">
-                                <span>EN <i class="fa fa-angle-down"></i></span>
-                                <div class="flag-dropdown">
-                                    <ul>
-                                        <li><a href="#">German</a></li>
-                                        <li><a href="#">English</a></li>
-                                    </ul>
-                                </div>
+                                {% if session.get('customer_id') %}
+                                    {# Fetch user's first name from session or database. If not in session, you may need to set it at login. #}
+                                    <span>
+                                        {{ session.get('first_name', 'User') }} <i class="fa fa-angle-down"></i>
+                                    </span>
+                                    <div class="flag-dropdown">
+                                        <ul>
+                                            <li><a href="{{ url_for('logout') }}">Logout</a></li>
+                                        </ul>
+                                    </div>
+                                {% else %}
+                                    <a href="{{ url_for('login') }}" class="bk-btn">Login</a>
+                                {% endif %}
                             </div>
                         </div>
                     </div>

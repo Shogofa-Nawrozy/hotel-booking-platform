@@ -11,6 +11,10 @@
                         <a href="{{ url_for('index') }}">Home</a>
                         <span>Bookings</span>
                     </div>
+                    <div class="bt-option">
+                        <a href="{{ url_for('booking_report') }}">Go to</a>
+                        <span>Analytical report student 2</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -22,62 +26,69 @@
 <section class="rooms-section spad">
     <div class="container">
         <div class="row">
-
-            {% for row in booking %}
+            {% for booking in bookings %}
             <div class="col-lg-12 mb-4">
                 <div class="room-item d-flex flex-row align-items-start">
-                    <!-- Image -->
+                    <!-- Image (show first room's image or a generic one) -->
                     <div class="room-img me-4">
                         <img src="{{ url_for('static', filename='img/room/room-1.jpg') }}" alt="Room Image"
                              style="width: 300px; height: auto; border-radius: 10px;">
                     </div>
-
                     <!-- Details -->
-                    <div class="ri-text" style="width: 600px; height: auto;">
+                    <div class="ri-text" style="width: 100%;">
                         <h4>
-                            {{ row.HotelName }} (Room {{ row.RoomNumber }})
+                            Booking #{{ booking.BookingID }}
                         </h4>
-                        <h5>{{ row.TotalPrice }}$ <span>Total Price</span></h5>
                         <p>
-                            <b>Check-in:</b> {{ row.CheckInDate }}<br>
-                            <b>Check-out:</b> {{ row.CheckOutDate }}
+                            <b>Hotels:</b> {{ booking.Hotels | join(', ') }}<br>
+                            <b>Rooms:</b> {{ booking.NumRooms }}<br>
+                            <b>Total Price:</b> ${{ booking.TotalPrice }}
                         </p>
-                        <div class="rating" style="padding-top:10px;">
-                            <span>Rating</span>
-                            {% set rating = row.HotelRating or row.ReviewRating or 0 %}
-                            {% for i in range(1, 6) %}
-                                {% if i <= (rating|int) %}
-                                    <i class="icon_star" style="color: #FFD700;"></i>
-                                {% elif i - rating < 1 %}
-                                    <i class="icon_star-half_alt" style="color: #FFD700;"></i>
-                                {% else %}
-                                    <i class="icon_star" style="color: #ccc;"></i>
-                                {% endif %}
-                            {% endfor %}
-                        </div>
-                        {% if row.is_paid %}
-    <div style="margin-left:200px; ">
-        <span class="badge bg-success" style="font-size: 1.1em; padding: 10px 24px; border-radius: 20px; display: inline-flex; align-items: center;">
-            <i class="icon_check_alt2" style="font-size: 1.3em; margin-right: 8px;"></i>
-            Paid
-        </span>
-    </div>
-{% elif row.has_pending %}
-    <a href="{{ url_for('payment', booking_id=row.BookingID, booking_total=row.TotalPrice) }}" class="primary-btn" style="margin-left:200px;">Continue with Payment</a>
-{% else %}
-    <a href="{{ url_for('payment', booking_id=row.BookingID, booking_total=row.TotalPrice) }}" class="primary-btn" style="margin-left:200px;">Pay Now</a>
-{% endif %}
+                        <table class="table table-bordered">
+                            <thead>
+                                <tr>
+                                    <th>Hotel</th>
+                                    <th>Room Number</th>
+                                    <th>Price Per Night</th>
+                                    <th>Check-in</th>
+                                    <th>Check-out</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for room in booking.Rooms %}
+                                <tr>
+                                    <td>{{ room.HotelName }}</td>
+                                    <td>{{ room.RoomNumber }}</td>
+                                    <td>${{ room.PricePerNight }}</td>
+                                    <td>{{ booking.CheckInDate }}</td>
+                                    <td>{{ booking.CheckOutDate }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        <h5>
+                            ${{ booking.PendingAmount if booking.PendingAmount else 0.00 }}
+                            <span>Amount to Pay Now</span>
+                        </h5>
+                        {% if booking.is_paid %}
+                            <span class="badge bg-success" style="font-size: 1.1em; padding: 10px 24px; border-radius: 20px; display: inline-flex; align-items: center;">
+                                <i class="icon_check_alt2" style="font-size: 1.3em; margin-right: 8px;"></i>
+                                Paid
+                            </span>
+                        {% elif booking.has_pending %}
+                            <a href="{{ url_for('payment', booking_id=booking.BookingID, booking_total=booking.TotalPrice) }}" class="primary-btn" style= "margin-top:20px;">Continue with Payment</a>
+                        {% else %}
+                            <a href="{{ url_for('payment', booking_id=booking.BookingID, booking_total=booking.TotalPrice) }}" class="primary-btn"  style= "margin-top:20px;">Pay Now</a>
+                        {% endif %}
                     </div>
                 </div>
             </div>
             {% endfor %}
-
-            {% if booking|length == 0 %}
+            {% if bookings|length == 0 %}
             <div class="col-lg-12">
                 <p style="text-align:center;">No bookings found.</p>
             </div>
             {% endif %}
-
         </div>
     </div>
 </section>

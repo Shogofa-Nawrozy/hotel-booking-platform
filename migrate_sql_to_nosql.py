@@ -51,16 +51,28 @@ def migrate_table(sql_table, mongo_collection):
         cleaned = [fix_types(r) for r in records]
         mongo_db[mongo_collection].insert_many(cleaned)
 
-# Migrate tables one by one
+# Migrate Bookings with Embedded Payments
+cursor.execute("SELECT * FROM Booking")
+bookings = cursor.fetchall()
+
+for booking in bookings:
+    # Find all payments for this booking
+    cursor.execute("SELECT * FROM Payment WHERE BookingID = %s", (booking['BookingID'],))
+    payments = cursor.fetchall()
+    # Clean types for MongoDB
+    booking_clean = fix_types(booking)
+    payments_clean = [fix_types(p) for p in payments]
+    booking_clean['payments'] = payments_clean
+    mongo_db['booking'].insert_one(booking_clean)
+
+# Migrate other tables as before
 migrate_table("Hotel", "hotel")
 migrate_table("HotelPartnership", "hotelpartnership")
 migrate_table("Customer", "customer")
 migrate_table("Room", "room")
 migrate_table("SuiteRoom", "suiteroom")
 migrate_table("DeluxeRoom", "deluxeroom")
-migrate_table("Booking", "booking")
 migrate_table("Contains", "contains")
-migrate_table("Payment", "payment")
 migrate_table("Review", "review")
 
 # Cleanup
