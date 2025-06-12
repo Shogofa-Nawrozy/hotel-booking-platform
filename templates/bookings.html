@@ -37,7 +37,12 @@
                     <!-- Details -->
                     <div class="ri-text" style="width: 100%;">
                         <h4>
-                            Booking #{{ booking.BookingID }}
+                            Booking #
+                            {% if active_db == "mongodb" %}
+                                {{ booking._id|string }}
+                            {% else %}
+                                {{ booking.BookingID }}
+                            {% endif %}
                         </h4>
                         <p>
                             <b>Hotels:</b> {{ booking.Hotels | join(', ') }}<br>
@@ -70,15 +75,28 @@
                             ${{ booking.PendingAmount if booking.PendingAmount else 0.00 }}
                             <span>Amount to Pay Now</span>
                         </h5>
-                        {% if booking.is_paid %}
-                            <span class="badge bg-success" style="font-size: 1.1em; padding: 10px 24px; border-radius: 20px; display: inline-flex; align-items: center;">
-                                <i class="icon_check_alt2" style="font-size: 1.3em; margin-right: 8px;"></i>
-                                Paid
-                            </span>
-                        {% elif booking.has_pending %}
-                            <a href="{{ url_for('payment', booking_id=booking.BookingID, booking_total=booking.TotalPrice) }}" class="primary-btn" style= "margin-top:20px;">Continue with Payment</a>
+                        {% if active_db == "mongodb" %}
+                            {% if booking.is_paid %}
+                                <span class="badge bg-success" style="font-size: 1.1em; padding: 10px 24px; border-radius: 20px; display: inline-flex; align-items: center;">
+                                    <i class="icon_check_alt2" style="font-size: 1.3em; margin-right: 8px;"></i>
+                                    Paid
+                                </span>
+                            {% elif booking.has_pending %}
+                                <a href="{{ url_for('payment', booking_id=booking._id|string, booking_total=booking.TotalPrice) }}" class="primary-btn" style="margin-top:20px;">Continue with Payment</a>
+                            {% else %}
+                                <a href="{{ url_for('payment', booking_id=booking._id|string, booking_total=booking.TotalPrice) }}" class="primary-btn" style="margin-top:20px;">Pay Now</a>
+                            {% endif %}
                         {% else %}
-                            <a href="{{ url_for('payment', booking_id=booking.BookingID, booking_total=booking.TotalPrice) }}" class="primary-btn"  style= "margin-top:20px;">Pay Now</a>
+                            {% if booking.is_paid %}
+                                <span class="badge bg-success" style="font-size: 1.1em; padding: 10px 24px; border-radius: 20px; display: inline-flex; align-items: center;">
+                                    <i class="icon_check_alt2" style="font-size: 1.3em; margin-right: 8px;"></i>
+                                    Paid
+                                </span>
+                            {% elif booking.has_pending %}
+                                <a href="{{ url_for('payment', booking_id=booking.BookingID, booking_total=booking.TotalPrice) }}" class="primary-btn" style="margin-top:20px;">Continue with Payment</a>
+                            {% else %}
+                                <a href="{{ url_for('payment', booking_id=booking.BookingID, booking_total=booking.TotalPrice) }}" class="primary-btn" style="margin-top:20px;">Pay Now</a>
+                            {% endif %}
                         {% endif %}
                     </div>
                 </div>

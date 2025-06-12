@@ -5,6 +5,8 @@ from urllib.parse import urlparse, urljoin, quote, unquote, urlencode
 import subprocess
 import mysql.connector
 import os  # Needed for environment variable access
+from bson import ObjectId
+from bson.errors import InvalidId
 
 # Create a connection to MariaDB
 def get_db_connection():
@@ -246,7 +248,7 @@ def bookings():
         bookings = []
         for b in db.booking.find({"CustomerID": int(customer_id)}):
             # Get rooms for this booking
-            contains = list(db.contains.find({"BookingID": b["BookingID"]}))
+            contains = list(db.contains.find({"BookingID": b["_id"]}))
             rooms = []
             hotels = set()
             for c in contains:
@@ -265,7 +267,7 @@ def bookings():
             has_pending = any(p["PaymentStatus"] == "pending" for p in payments)
             pending_amount = sum(p["Amount"] for p in payments if p["PaymentStatus"] == "pending")
             bookings.append({
-                "BookingID": b["BookingID"],
+                "_id": b["_id"],
                 "TotalPrice": b["TotalPrice"],
                 "CheckInDate": b["CheckInDate"],
                 "CheckOutDate": b["CheckOutDate"],
@@ -342,132 +344,292 @@ def bookings():
 # Payments list
 @app.route('/payment', methods=['GET', 'POST'])
 def payment():
-    if request.method == 'POST':
-        # Handle AJAX/JSON payment submission
-        data = request.get_json()
-        payments = data.get('payments', [])
+    db_type = session.get('active_db', 'mariadb')
+    if db_type == 'mongodb':
+        if request.method == 'POST':
+            data = request.get_json()
+            booking_id = data.get('booking_id') or data.get('BookingID')
+            new_payments = data.get('payments', [])
+
+            # Fetch the booking
+            booking = db.booking.find_one({"_id": ObjectId(booking_id)})
+            if not booking:
+                return jsonify({"success": False, "error": "Booking not found"}), 404
+
+            # Update the payments array
+            existing_payments = booking.get("payments", [])
+            for new_payment in new_payments:
+                # Find the pending payment to update
+                for payment in existing_payments:
+                    if (
+                        payment.get("PaymentNumber") == new_payment.get("PaymentNumber")
+                        and payment.get("PaymentStatus") == "pending"
+                    ):
+                        # Update fields
+                        payment.update(new_payment)
+                        payment["PaymentStatus"] = "completed"
+                        payment["PaymentDate"] = new_payment.get("PaymentDate")
+                        payment["PaymentMethod"] = new_payment.get("PaymentMethod")
+                        payment["CardNumber"] = new_payment.get("CardNumber")
+                        payment["ExpiryDate"] = new_payment.get("ExpiryDate")
+                        payment["CVV"] = new_payment.get("CVV")
+            # Save back to DB
+            db.booking.update_one(
+                {"_id": ObjectId(booking_id)},
+                {"$set": {"payments": existing_payments}}
+            )
+            return jsonify({"success": True})
+
+        # GET: Show payment page
+        booking_id = request.args.get('booking_id')
+        booking_total = request.args.get('booking_total')
+        pending_amount = 0.0
+        booking = None
+
+        if booking_id:
+            try:
+                booking = db.booking.find_one({"_id": ObjectId(booking_id)})
+            except Exception:
+                booking = None
+
+        if booking and "payments" in booking:
+            pending_amount = sum(
+                float(p.get("Amount", 0))
+                for p in booking["payments"]
+                if p.get("PaymentStatus") == "pending"
+            )
+        has_pending = pending_amount > 0
         try:
+            booking_total = float(booking_total)
+        except (TypeError, ValueError):
+            booking_total = 0.0
+
+        return render_template(
+            'payment.html',
+            booking_id=booking_id,
+            booking_total=booking_total,
+            pending_amount=pending_amount,
+            has_pending=has_pending
+        )
+    else:
+        # MariaDB logic
+        if request.method == 'POST':
+            # Handle AJAX/JSON payment submission
+            data = request.get_json()
+            payments = data.get('payments', [])
+            try:
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                for payment in payments:
+                    cursor.execute("""
+                        INSERT INTO Payment
+                        (BookingID, PaymentNumber, PaymentMethod, PaymentDate, PaymentStatus,
+                        CardNumber, ExpiryDate, CVV, Amount)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON DUPLICATE KEY UPDATE
+                            PaymentMethod=VALUES(PaymentMethod),
+                            PaymentDate=VALUES(PaymentDate),
+                            PaymentStatus=VALUES(PaymentStatus),
+                            CardNumber=VALUES(CardNumber),
+                            ExpiryDate=VALUES(ExpiryDate),
+                            CVV=VALUES(CVV),
+                            Amount=VALUES(Amount)
+                    """, (
+                        payment['BookingID'],
+                        payment['PaymentNumber'],
+                        payment['PaymentMethod'],
+                        payment['PaymentDate'],
+                        payment['PaymentStatus'],
+                        payment['CardNumber'],
+                        payment['ExpiryDate'],
+                        payment['CVV'],
+                        payment['Amount']
+                    ))
+                conn.commit()
+                cursor.close()
+                conn.close()
+                return jsonify({"success": True})
+            except Exception as e:
+                return jsonify({"success": False, "error": str(e)}), 500
+
+        # GET: Show payment page
+        booking_id = request.args.get('booking_id')
+        booking_total = request.args.get('booking_total')
+
+        pending_amount = None
+        has_pending = False
+        if booking_id:
             conn = get_db_connection()
-            cursor = conn.cursor()
-            for payment in payments:
-                cursor.execute("""
-                    INSERT INTO Payment
-                    (BookingID, PaymentNumber, PaymentMethod, PaymentDate, PaymentStatus,
-                     CardNumber, ExpiryDate, CVV, Amount)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE
-                        PaymentMethod=VALUES(PaymentMethod),
-                        PaymentDate=VALUES(PaymentDate),
-                        PaymentStatus=VALUES(PaymentStatus),
-                        CardNumber=VALUES(CardNumber),
-                        ExpiryDate=VALUES(ExpiryDate),
-                        CVV=VALUES(CVV),
-                        Amount=VALUES(Amount)
-                """, (
-                    payment['BookingID'],
-                    payment['PaymentNumber'],
-                    payment['PaymentMethod'],
-                    payment['PaymentDate'],
-                    payment['PaymentStatus'],
-                    payment['CardNumber'],
-                    payment['ExpiryDate'],
-                    payment['CVV'],
-                    payment['Amount']
-                ))
-            conn.commit()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT Amount FROM Payment WHERE BookingID = %s AND PaymentStatus = 'pending' LIMIT 1",
+                (booking_id,)
+            )
+            row = cursor.fetchone()
             cursor.close()
             conn.close()
-            return jsonify({"success": True})
-        except Exception as e:
-            return jsonify({"success": False, "error": str(e)}), 500
+            if row:
+                pending_amount = float(row['Amount'])
+                has_pending = True
 
-    # GET: Show payment page
-    booking_id = request.args.get('booking_id')
-    booking_total = request.args.get('booking_total')
+        try:
+            booking_total = float(booking_total)
+        except (TypeError, ValueError):
+            booking_total = 0.0
 
-    # Fetch pending payment amount from Payment table
-    pending_amount = None
-    if booking_id:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute(
-            "SELECT Amount FROM Payment WHERE BookingID = %s AND PaymentStatus = 'pending' LIMIT 1",
-            (booking_id,)
+        return render_template(
+            'payment.html',
+            booking_id=booking_id,
+            booking_total=booking_total,
+            pending_amount=pending_amount,
+            has_pending=has_pending
         )
-        row = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        if row:
-            pending_amount = float(row['Amount'])
-
-    # Convert booking_total to float
-    try:
-        booking_total = float(booking_total)
-    except (TypeError, ValueError):
-        booking_total = 0.0
-
-    return render_template(
-        'payment.html',
-        booking_id=booking_id,
-        booking_total=booking_total,
-        pending_amount=pending_amount
-    )
 
 
 # Booking report page
 @app.route('/booking_report', methods=['GET', 'POST'])
 def booking_report():
+    db_type = session.get('active_db', 'mariadb')
     from_date = to_date = None
     if request.method == 'POST':
         from_date = request.form.get('from_date')
         to_date = request.form.get('to_date')
 
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("""
-        SELECT 
-            CONCAT(c.FirstName, ' ', c.LastName) AS CustomerName,
-            h.Name AS HotelName,
-            COUNT(DISTINCT b.BookingID) AS NumBookings,
-            COUNT(DISTINCT co.RoomNumber) AS NumRooms,
-            COALESCE(SUM(p.Amount), 0) AS TotalSpent
-        FROM Customer c
-        JOIN Booking b ON c.CustomerID = b.CustomerID
-        JOIN Contains co ON b.BookingID = co.BookingID
-        JOIN Hotel h ON co.HotelID = h.HotelID
-        LEFT JOIN Payment p ON b.BookingID = p.BookingID
-        WHERE (%s IS NULL OR %s IS NULL OR (b.CheckInDate BETWEEN %s AND %s))
-        GROUP BY c.CustomerID, h.HotelID, c.FirstName, c.LastName, h.Name
-        ORDER BY CustomerName, HotelName
-    """, (from_date, to_date, from_date, to_date))
-    report = cursor.fetchall()
+    if db_type == 'mongodb':
+        # Convert dates to datetime for MongoDB
+        from_dt = datetime.strptime(from_date, "%Y-%m-%d") if from_date else None
+        to_dt = datetime.strptime(to_date, "%Y-%m-%d") if to_date else None
 
-    # Summary: total customers and total revenue in the filtered range
-    cursor.execute("""
-        SELECT COUNT(DISTINCT b.CustomerID) AS TotalCustomers
-        FROM Booking b
-        WHERE (%s IS NULL OR %s IS NULL OR (b.CheckInDate BETWEEN %s AND %s))
-    """, (from_date, to_date, from_date, to_date))
-    total_customers = cursor.fetchone()['TotalCustomers']
+        pipeline = [
+            {
+                "$match": {
+                    **({"CheckinDate": {"$gte": from_date}} if from_date else {}),
+                    **({"CheckOutDate": {"$lte": to_date}} if to_date else {})
+                }
+            },
+            {
+                "$lookup": {
+                    "from": "customer",
+                    "localField": "CustomerID",
+                    "foreignField": "CustomerID",
+                    "as": "customer"
+                }
+            },
+            {"$unwind": "$customer"},
+            {
+                "$lookup": {
+                    "from": "contains",
+                    "localField": "_id",  # Use _id here!
+                    "foreignField": "BookingID",
+                    "as": "contains"
+                }
+            },
+            {"$unwind": "$contains"},
+            {
+                "$lookup": {
+                    "from": "hotel",
+                    "localField": "contains.HotelID",
+                    "foreignField": "HotelID",
+                    "as": "hotel"
+                }
+            },
+            {"$unwind": "$hotel"},
+            {
+                "$group": {
+                    "_id": {
+                        "CustomerID": "$CustomerID",
+                        "HotelID": "$contains.HotelID",
+                        "CustomerName": {"$concat": ["$customer.FirstName", " ", "$customer.LastName"]},
+                        "HotelName": "$hotel.Name"
+                    },
+                    "NumBookings": {"$addToSet": "$_id"},
+                    "NumRooms": {"$sum": 1},
+                    "TotalSpent": {
+                        "$sum": {
+                            "$sum": {
+                                "$map": {
+                                    "input": {"$ifNull": ["$payments", []]},
+                                    "as": "p",
+                                    "in": {"$toDouble": "$$p.Amount"}
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            {
+                "$project": {
+                    "CustomerName": "$_id.CustomerName",
+                    "HotelName": "$_id.HotelName",
+                    "NumBookings": {"$size": "$NumBookings"},
+                    "NumRooms": 1,
+                    "TotalSpent": 1
+                }
+            },
+            {"$sort": {"CustomerName": 1, "HotelName": 1}}
+        ]
+        report = list(db.booking.aggregate(pipeline))
 
-    cursor.execute("""
-        SELECT COALESCE(SUM(p.Amount), 0) AS TotalRevenue
-        FROM Payment p
-        JOIN Booking b ON p.BookingID = b.BookingID
-        WHERE (%s IS NULL OR %s IS NULL OR (b.CheckInDate BETWEEN %s AND %s))
-    """, (from_date, to_date, from_date, to_date))
-    total_revenue = cursor.fetchone()['TotalRevenue']
+        # Summary: total customers and total revenue in the filtered range
+        total_customers = len(set(r["CustomerName"] for r in report))
+        total_revenue = sum(r["TotalSpent"] for r in report)
 
-    cursor.close()
-    conn.close()
-    return render_template(
-        'booking_report.html',
-        report=report,
-        total_customers=total_customers,
-        total_revenue=total_revenue,
-        from_date=from_date,
-        to_date=to_date
-    )
+        return render_template(
+            'booking_report.html',
+            report=report,
+            total_customers=total_customers,
+            total_revenue=total_revenue,
+            from_date=from_date,
+            to_date=to_date
+        )
+    else:
+        # MariaDB logic
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT 
+                CONCAT(c.FirstName, ' ', c.LastName) AS CustomerName,
+                h.Name AS HotelName,
+                COUNT(DISTINCT b.BookingID) AS NumBookings,
+                COUNT(DISTINCT co.RoomNumber) AS NumRooms,
+                COALESCE(SUM(p.Amount), 0) AS TotalSpent
+            FROM Customer c
+            JOIN Booking b ON c.CustomerID = b.CustomerID
+            JOIN Contains co ON b.BookingID = co.BookingID
+            JOIN Hotel h ON co.HotelID = h.HotelID
+            LEFT JOIN Payment p ON b.BookingID = p.BookingID
+            WHERE (%s IS NULL OR %s IS NULL OR (b.CheckInDate BETWEEN %s AND %s))
+            GROUP BY c.CustomerID, h.HotelID, c.FirstName, c.LastName, h.Name
+            ORDER BY CustomerName, HotelName
+        """, (from_date, to_date, from_date, to_date))
+        report = cursor.fetchall()
+
+        # Summary: total customers and total revenue in the filtered range
+        cursor.execute("""
+            SELECT COUNT(DISTINCT b.CustomerID) AS TotalCustomers
+            FROM Booking b
+            WHERE (%s IS NULL OR %s IS NULL OR (b.CheckInDate BETWEEN %s AND %s))
+        """, (from_date, to_date, from_date, to_date))
+        total_customers = cursor.fetchone()['TotalCustomers']
+
+        cursor.execute("""
+            SELECT COALESCE(SUM(p.Amount), 0) AS TotalRevenue
+            FROM Payment p
+            JOIN Booking b ON p.BookingID = b.BookingID
+            WHERE (%s IS NULL OR %s IS NULL OR (b.CheckInDate BETWEEN %s AND %s))
+        """, (from_date, to_date, from_date, to_date))
+        total_revenue = cursor.fetchone()['TotalRevenue']
+
+        cursor.close()
+        conn.close()
+        return render_template(
+            'booking_report.html',
+            report=report,
+            total_customers=total_customers,
+            total_revenue=total_revenue,
+            from_date=from_date,
+            to_date=to_date
+        )
 
 
 # NELIN CHANGES *********************************************************************************************************************
@@ -743,7 +905,8 @@ def reset_mariadb():
     try:
         result = subprocess.run(['python3', 'mariadb_seeder.py'], capture_output=True, text=True)
         if result.returncode == 0:
-            return render_template("admin.html", message="✅ MariaDB has been reset and repopulated with fake data.")
+            session['active_db'] = 'mariadb'  # Switch to MariaDB after reset
+            return render_template("admin.html", message="✅ MariaDB has been reset and repopulated with fake data. Now using MariaDB.")
         else:
             return render_template("admin.html", message=f"❌ Error during MariaDB reset: {result.stderr}")
     except Exception as e:
@@ -825,6 +988,11 @@ def api_payments():
     return jsonify(data)
 
 
+@app.context_processor
+def inject_active_db():
+    return {"active_db": session.get("active_db", "mariadb")}
+
 # Run the application with debug mode
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
+

@@ -47,7 +47,7 @@
                         </div>
 
                         <!-- Payment Option: Only show if no pending payment -->
-                        {% if not pending_amount %}
+                        {% if not has_pending %}
                         <div class="payment-option">
                             <label>
                                 <input type="radio" name="payment_option" value="full" checked> Pay full amount
@@ -62,7 +62,7 @@
                         <div class="payment-amount-section">
                             <label for="payment-amount">Amount to Pay Now:</label>
                             <input type="number" id="payment-amount" name="payment_amount" readonly
-                                   value="{% if pending_amount %}{{ pending_amount|float|round(2) }}{% else %}{{ booking_total|float|round(2) }}{% endif %}"
+                                   value="{% if has_pending %}{{ pending_amount|float|round(2) }}{% else %}{{ booking_total|float|round(2) }}{% endif %}"
                                    step="0.01">
                         </div>
 
@@ -90,13 +90,14 @@
     document.addEventListener('DOMContentLoaded', function () {
         const bookingTotal = parseFloat('{{ booking_total }}');
         const pendingAmount = {{ pending_amount if pending_amount is not none else 'null' }};
+        const hasPending = {{ 'true' if has_pending else 'false' }};
         const paymentAmountInput = document.getElementById('payment-amount');
         const paymentOptionRadios = document.getElementsByName('payment_option');
         const paymentForm = document.getElementById('payment-form');
         const confirmationMessage = document.getElementById('confirmation-message');
 
         function updatePaymentAmount() {
-            if (pendingAmount !== null) {
+            if (hasPending) {
                 paymentAmountInput.value = pendingAmount.toFixed(2);
             } else {
                 let selectedOption = Array.from(paymentOptionRadios).find(r => r.checked).value;
@@ -108,7 +109,7 @@
             }
         }
 
-        if (!pendingAmount) {
+        if (!hasPending) {
             paymentOptionRadios.forEach(radio => {
                 radio.addEventListener('change', updatePaymentAmount);
             });
@@ -127,7 +128,7 @@
             const cvv = formData.get('cvv');
             let payments = [];
 
-            if (pendingAmount !== null) {
+            if (hasPending) {
                 // Only pay the pending amount (second installment)
                 payments.push({
                     BookingID: '{{ booking_id }}',
@@ -175,7 +176,10 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ payments }),
+                body: JSON.stringify({
+                    payments,
+                    booking_id: '{{ booking_id }}'   // <-- Add this line!
+                }),
             })
             .then(response => {
                 if (!response.ok) {

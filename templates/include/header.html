@@ -148,8 +148,14 @@
                                     <li><a href="{{ url_for('contact') }}">Contact</a></li>
                                 </ul>
                             </nav>
-                            <div class="nav-right search-switch">
-                                <i class="icon_search"></i>
+                           <!-- Show active DB indicator -->
+                            <div style="position:fixed;top:0;right:0;z-index:9999;background:#222;color:#fff;padding:6px 18px;border-radius:0 0 0 12px;opacity:0.85;font-size:1em;">
+                                DB: 
+                                {% if active_db == "mongodb" %}
+                                    <span style="color:#4caf50;font-weight:bold;">MongoDB (NoSQL)</span>
+                                {% else %}
+                                    <span style="color:#2196f3;font-weight:bold;">MariaDB (SQL)</span>
+                                {% endif %}
                             </div>
                         </div>
                     </div>

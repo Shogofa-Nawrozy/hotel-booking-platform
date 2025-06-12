@@ -55,28 +55,58 @@ def migrate_table(sql_table, mongo_collection):
 cursor.execute("SELECT * FROM Booking")
 bookings = cursor.fetchall()
 
-for booking in bookings:
-    # Find all payments for this booking
-    cursor.execute("SELECT * FROM Payment WHERE BookingID = %s", (booking['BookingID'],))
-    payments = cursor.fetchall()
-    # Clean types for MongoDB
-    booking_clean = fix_types(booking)
-    payments_clean = [fix_types(p) for p in payments]
-    booking_clean['payments'] = payments_clean
-    mongo_db['booking'].insert_one(booking_clean)
+# Map MariaDB BookingID to MongoDB _id for reference in Contains
+booking_id_map = {}
 
-# Migrate other tables as before
+for booking in bookings:
+    original_booking_id = booking['BookingID']  # Save before cleaning
+    cursor.execute("SELECT * FROM Payment WHERE BookingID = %s", (original_booking_id,))
+    payments = cursor.fetchall()
+    booking_clean = fix_types(booking)
+    payments_clean = []
+    for p in payments:
+        p_clean = fix_types(p)
+        p_clean.pop('BookingID', None)  # Remove BookingID from payment
+        payments_clean.append(p_clean)
+    booking_clean['payments'] = payments_clean
+    booking_clean.pop('BookingID', None)
+    result = mongo_db['booking'].insert_one(booking_clean)
+    booking_id_map[original_booking_id] = result.inserted_id  # Use saved value
+
+# Migrate Contains, referencing booking _id
+cursor.execute("SELECT * FROM Contains")
+contains_records = cursor.fetchall()
+contains_cleaned = []
+for c in contains_records:
+    c_clean = fix_types(c)
+    # Replace BookingID with MongoDB _id
+    c_clean['BookingID'] = booking_id_map.get(c['BookingID'])
+    contains_cleaned.append(c_clean)
+if contains_cleaned:
+    mongo_db['contains'].insert_many(contains_cleaned)
+
+# Migrate other tables as before (no change needed)
 migrate_table("Hotel", "hotel")
 migrate_table("HotelPartnership", "hotelpartnership")
 migrate_table("Customer", "customer")
 migrate_table("Room", "room")
 migrate_table("SuiteRoom", "suiteroom")
 migrate_table("DeluxeRoom", "deluxeroom")
-migrate_table("Contains", "contains")
 migrate_table("Review", "review")
 
 # Cleanup
 cursor.close()
 mariadb.close()
+
+# Run this in a Python shell or script with your MongoDB connection
+for booking in mongo_db.booking.find():
+    payments = booking.get("payments", [])
+    changed = False
+    for p in payments:
+        if "BookingID" in p:
+            p.pop("BookingID")
+            changed = True
+    if changed:
+        mongo_db.booking.update_one({"_id": booking["_id"]}, {"$set": {"payments": payments}})
 
 print("Data successfully migrated from MariaDB to MongoDB.")
