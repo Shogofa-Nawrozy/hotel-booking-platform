@@ -19,7 +19,7 @@ mongo_db = mongo["hotel-booking-platform"]
 
 # Clear relevant MongoDB collections
 collections = [
-    "hotel", "hotelpartnership", "customer", "booking", "contains", "suiteroom", "deluxeroom", "room"
+    "hotel", "hotelpartnership", "customer", "booking", "contains", "room"
 ]
 for col in collections:
     mongo_db[col].delete_many({})
@@ -65,7 +65,7 @@ for hotel in hotels:
     result = mongo_db["hotel"].insert_one(hotel_clean)
     hotel_id_map[hotel_id] = result.inserted_id
 
-# --- Rooms (keep mapping for RoomID and HotelID)
+# --- Rooms: create all rooms first
 cursor.execute("SELECT * FROM Room")
 all_rooms = cursor.fetchall()
 room_id_map = {}
@@ -73,32 +73,39 @@ for r in all_rooms:
     cleaned = fix_types(r)
     old_hotel_id = cleaned.pop("HotelID")
     cleaned["HotelID"] = hotel_id_map[old_hotel_id]  # store HotelID as mongo _id
+    # RoomNumber is kept as is
     result = mongo_db["room"].insert_one(cleaned)
-    # key = (old_hotel_id, cleaned["RoomNumber"])
     key = (old_hotel_id, cleaned["RoomNumber"])
     room_id_map[key] = result.inserted_id
 
-# --- SuiteRoom and DeluxeRoom with embedded Room data
-def migrate_room_subtypes():
-    for subtype, table in [("suiteroom", "SuiteRoom"), ("deluxeroom", "DeluxeRoom")]:
-        cursor.execute(f"SELECT * FROM {table}")
-        subrooms = cursor.fetchall()
-        for sub in subrooms:
-            hotel_id = sub["HotelID"]
-            room_number = sub["RoomNumber"]
-            sub_clean = fix_types(sub)
-            room = mongo_db["room"].find_one({
-                "RoomNumber": room_number,
-                "HotelID": hotel_id_map[hotel_id]
-            })
-            if not room:
-                continue
-            room_data = {**room, **sub_clean}
-            room_data.pop("HotelID", None)
-            room_data.pop("RoomNumber", None)
-            mongo_db[subtype].insert_one(room_data)
+# --- Embed SuiteRoom and DeluxeRoom info inside Room
+# Add deluxe info
+cursor.execute("SELECT * FROM DeluxeRoom")
+for deluxe in cursor.fetchall():
+    hotel_id = hotel_id_map[deluxe['HotelID']]
+    room_number = deluxe['RoomNumber']
+    deluxe_fields = {
+        "PrivateBalcony": deluxe['PrivateBalcony'],
+        "BonusServices": deluxe['BonusServices']
+    }
+    mongo_db["room"].update_one(
+        {"HotelID": hotel_id, "RoomNumber": room_number},
+        {"$set": {"deluxe": deluxe_fields}}
+    )
 
-migrate_room_subtypes()
+# Add suite info
+cursor.execute("SELECT * FROM SuiteRoom")
+for suite in cursor.fetchall():
+    hotel_id = hotel_id_map[suite['HotelID']]
+    room_number = suite['RoomNumber']
+    suite_fields = {
+        "SeparateLivingRoom": suite['SeparateLivingRoom'],
+        "Jacuzzi": suite['Jacuzzi']
+    }
+    mongo_db["room"].update_one(
+        {"HotelID": hotel_id, "RoomNumber": room_number},
+        {"$set": {"suite": suite_fields}}
+    )
 
 # --- HotelPartnership using MongoDB _id
 cursor.execute("SELECT * FROM HotelPartnership")

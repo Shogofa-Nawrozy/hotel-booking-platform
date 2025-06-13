@@ -505,8 +505,6 @@ def payment():
             has_pending=has_pending
         )
 
-
-# Booking report page
 @app.route('/booking_report', methods=['GET', 'POST'])
 def booking_report():
     db_type = session.get('active_db', 'mariadb')
@@ -516,81 +514,95 @@ def booking_report():
         to_date = request.form.get('to_date')
 
     if db_type == 'mongodb':
-        # Convert dates to datetime for MongoDB
-        from_dt = datetime.strptime(from_date, "%Y-%m-%d") if from_date else None
-        to_dt = datetime.strptime(to_date, "%Y-%m-%d") if to_date else None
+        # Prepare date filters for MongoDB
+        match_stage = {}
+        if from_date and to_date:
+            from_dt = datetime.strptime(from_date, "%Y-%m-%d")
+            to_dt = datetime.strptime(to_date, "%Y-%m-%d")
+            match_stage = {
+                "CheckInDate": {"$gte": from_dt, "$lte": to_dt}
+            }
 
         pipeline = [
-            {
-                "$match": {
-                    **({"CheckinDate": {"$gte": from_date}} if from_date else {}),
-                    **({"CheckOutDate": {"$lte": to_date}} if to_date else {})
-                }
-            },
+            {"$match": match_stage} if match_stage else {"$sort": {"CheckInDate": -1}},
+            # Lookup customer
             {
                 "$lookup": {
                     "from": "customer",
                     "localField": "CustomerID",
-                    "foreignField": "CustomerID",
+                    "foreignField": "_id",
                     "as": "customer"
                 }
             },
             {"$unwind": "$customer"},
+            # Lookup contains
             {
                 "$lookup": {
                     "from": "contains",
-                    "localField": "_id",  # Use _id here!
+                    "localField": "_id",
                     "foreignField": "BookingID",
                     "as": "contains"
                 }
             },
+            # Unwind contains for multiple rooms per booking
             {"$unwind": "$contains"},
+            # Group BY Customer+Hotel (NO BookingID)
+            {
+                "$group": {
+                    "_id": {
+                        "CustomerID": "$CustomerID",
+                        "HotelID": "$contains.HotelID"
+                    },
+                    "CustomerName": {"$first": {"$concat": ["$customer.FirstName", " ", "$customer.LastName"]}},
+                    "HotelID": {"$first": "$contains.HotelID"},
+                    "NumBookings": {"$addToSet": "$_id"},     # collect unique BookingIDs for this Customer/Hotel
+                    "NumRooms": {"$sum": 1},
+                    "TotalSpent": {"$sum": "$TotalPrice"}
+                }
+            },
+            # Count bookings from set length
+            {
+                "$project": {
+                    "CustomerName": 1,
+                    "HotelID": 1,
+                    "NumBookings": {"$size": "$NumBookings"},
+                    "NumRooms": 1,
+                    "TotalSpent": 1
+                }
+            },
+            # Lookup hotel name
             {
                 "$lookup": {
                     "from": "hotel",
-                    "localField": "contains.HotelID",
-                    "foreignField": "HotelID",
+                    "localField": "HotelID",
+                    "foreignField": "_id",
                     "as": "hotel"
                 }
             },
             {"$unwind": "$hotel"},
             {
-                "$group": {
-                    "_id": {
-                        "CustomerID": "$CustomerID",
-                        "HotelID": "$contains.HotelID",
-                        "CustomerName": {"$concat": ["$customer.FirstName", " ", "$customer.LastName"]},
-                        "HotelName": "$hotel.Name"
-                    },
-                    "NumBookings": {"$addToSet": "$_id"},
-                    "NumRooms": {"$sum": 1},
-                    "TotalSpent": {
-                        "$sum": {
-                            "$sum": {
-                                "$map": {
-                                    "input": {"$ifNull": ["$payments", []]},
-                                    "as": "p",
-                                    "in": {"$toDouble": "$$p.Amount"}
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            {
                 "$project": {
-                    "CustomerName": "$_id.CustomerName",
-                    "HotelName": "$_id.HotelName",
-                    "NumBookings": {"$size": "$NumBookings"},
+                    "CustomerName": 1,
+                    "HotelName": "$hotel.Name",
+                    "NumBookings": 1,
                     "NumRooms": 1,
                     "TotalSpent": 1
                 }
             },
             {"$sort": {"CustomerName": 1, "HotelName": 1}}
         ]
+
+        if not (from_date and to_date):
+            pipeline.insert(1, {"$limit": 10})
+
+
+        # If not filtering, show only 10 most recent analytics
+        if not (from_date and to_date):
+            pipeline.insert(1, {"$limit": 10})
+
         report = list(db.booking.aggregate(pipeline))
 
-        # Summary: total customers and total revenue in the filtered range
+        # Calculate summary
         total_customers = len(set(r["CustomerName"] for r in report))
         total_revenue = sum(r["TotalSpent"] for r in report)
 
@@ -624,7 +636,6 @@ def booking_report():
         """, (from_date, to_date, from_date, to_date))
         report = cursor.fetchall()
 
-        # Summary: total customers and total revenue in the filtered range
         cursor.execute("""
             SELECT COUNT(DISTINCT b.CustomerID) AS TotalCustomers
             FROM Booking b
@@ -650,6 +661,7 @@ def booking_report():
             from_date=from_date,
             to_date=to_date
         )
+
 
 
 # NELIN CHANGES *********************************************************************************************************************
