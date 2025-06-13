@@ -505,151 +505,139 @@ def payment():
             has_pending=has_pending
         )
 
+
 @app.route('/booking_report', methods=['GET', 'POST'])
 def booking_report():
     db_type = session.get('active_db', 'mariadb')
     from_date = to_date = None
+    default_range_used = False
+
     if request.method == 'POST':
         from_date = request.form.get('from_date')
         to_date = request.form.get('to_date')
 
+    # If no dates, use last 30 days as default
+    if not (from_date and to_date):
+        today = datetime.today()
+        from_dt = today - timedelta(days=30)
+        to_dt = today
+        from_date = from_dt.strftime('%Y-%m-%d')
+        to_date = to_dt.strftime('%Y-%m-%d')
+        default_range_used = True
+    else:
+        from_dt = datetime.strptime(from_date, "%Y-%m-%d")
+        to_dt = datetime.strptime(to_date, "%Y-%m-%d")
+        default_range_used = False
+
     if db_type == 'mongodb':
-        # Prepare date filters for MongoDB
-        match_stage = {}
-        if from_date and to_date:
-            from_dt = datetime.strptime(from_date, "%Y-%m-%d")
-            to_dt = datetime.strptime(to_date, "%Y-%m-%d")
-            match_stage = {
-                "CheckInDate": {"$gte": from_dt, "$lte": to_dt}
-            }
-
+        # Build the MongoDB pipeline
+        match_stage = {"CheckInDate": {"$gte": from_dt, "$lte": to_dt}}
         pipeline = [
-            {"$match": match_stage} if match_stage else {"$sort": {"CheckInDate": -1}},
-            # Lookup customer
-            {
-                "$lookup": {
-                    "from": "customer",
-                    "localField": "CustomerID",
-                    "foreignField": "_id",
-                    "as": "customer"
-                }
-            },
-            {"$unwind": "$customer"},
-            # Lookup contains
-            {
-                "$lookup": {
-                    "from": "contains",
-                    "localField": "_id",
-                    "foreignField": "BookingID",
-                    "as": "contains"
-                }
-            },
-            # Unwind contains for multiple rooms per booking
+            {"$match": match_stage},
+            {"$lookup": {
+                "from": "contains",
+                "localField": "_id",
+                "foreignField": "BookingID",
+                "as": "contains"
+            }},
             {"$unwind": "$contains"},
-            # Group BY Customer+Hotel (NO BookingID)
-            {
-                "$group": {
-                    "_id": {
-                        "CustomerID": "$CustomerID",
-                        "HotelID": "$contains.HotelID"
-                    },
-                    "CustomerName": {"$first": {"$concat": ["$customer.FirstName", " ", "$customer.LastName"]}},
-                    "HotelID": {"$first": "$contains.HotelID"},
-                    "NumBookings": {"$addToSet": "$_id"},     # collect unique BookingIDs for this Customer/Hotel
-                    "NumRooms": {"$sum": 1},
-                    "TotalSpent": {"$sum": "$TotalPrice"}
-                }
-            },
-            # Count bookings from set length
-            {
-                "$project": {
-                    "CustomerName": 1,
-                    "HotelID": 1,
-                    "NumBookings": {"$size": "$NumBookings"},
-                    "NumRooms": 1,
-                    "TotalSpent": 1
-                }
-            },
-            # Lookup hotel name
-            {
-                "$lookup": {
-                    "from": "hotel",
-                    "localField": "HotelID",
-                    "foreignField": "_id",
-                    "as": "hotel"
-                }
-            },
+            {"$match": {"contains.HotelID": {"$exists": True}}},
+            {"$addFields": {
+                "TotalPaid": {"$sum": {
+                    "$map": {
+                        "input": "$payments",
+                        "as": "pay",
+                        "in": {
+                            "$cond": [
+                                {"$eq": ["$$pay.PaymentStatus", "completed"]},
+                                "$$pay.Amount",
+                                0
+                            ]
+                        }
+                    }
+                }}
+            }},
+            {"$group": {
+                "_id": "$contains.HotelID",
+                "NumCustomers": {"$addToSet": "$CustomerID"},
+                "NumBookings": {"$addToSet": "$_id"},
+                "NumRooms": {"$sum": 1},
+                "TotalSpent": {"$sum": "$TotalPaid"}
+            }},
+            {"$addFields": {
+                "NumCustomers": {"$size": "$NumCustomers"},
+                "NumBookings": {"$size": "$NumBookings"}
+            }},
+            {"$lookup": {
+                "from": "hotel",
+                "localField": "_id",
+                "foreignField": "_id",
+                "as": "hotel"
+            }},
             {"$unwind": "$hotel"},
-            {
-                "$project": {
-                    "CustomerName": 1,
-                    "HotelName": "$hotel.Name",
-                    "NumBookings": 1,
-                    "NumRooms": 1,
-                    "TotalSpent": 1
+            {"$addFields": {
+                "HotelName": "$hotel.Name",
+                "AvgBookingValue": {
+                    "$cond": [
+                        {"$eq": ["$NumBookings", 0]},
+                        0,
+                        {"$divide": ["$TotalSpent", "$NumBookings"]}
+                    ]
                 }
-            },
-            {"$sort": {"CustomerName": 1, "HotelName": 1}}
+            }},
+            {"$project": {
+                "_id": 0,
+                "HotelName": 1,
+                "NumCustomers": 1,
+                "NumBookings": 1,
+                "NumRooms": 1,
+                "TotalSpent": 1,
+                "AvgBookingValue": 1
+            }},
+            {"$sort": {"HotelName": 1}}
         ]
-
-        if not (from_date and to_date):
-            pipeline.insert(1, {"$limit": 10})
-
-
-        # If not filtering, show only 10 most recent analytics
-        if not (from_date and to_date):
-            pipeline.insert(1, {"$limit": 10})
-
         report = list(db.booking.aggregate(pipeline))
 
-        # Calculate summary
-        total_customers = len(set(r["CustomerName"] for r in report))
-        total_revenue = sum(r["TotalSpent"] for r in report)
+        total_customers = sum(row.get("NumCustomers", 0) for row in report)
+        total_revenue = sum(row.get("TotalSpent", 0) for row in report)
+        total_bookings = sum(row.get("NumBookings", 0) for row in report)
 
         return render_template(
             'booking_report.html',
             report=report,
             total_customers=total_customers,
             total_revenue=total_revenue,
+            total_bookings=total_bookings,
             from_date=from_date,
-            to_date=to_date
+            to_date=to_date,
+            default_range_used=default_range_used
         )
     else:
         # MariaDB logic
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT 
-                CONCAT(c.FirstName, ' ', c.LastName) AS CustomerName,
+            SELECT
                 h.Name AS HotelName,
+                COUNT(DISTINCT b.CustomerID) AS NumCustomers,
                 COUNT(DISTINCT b.BookingID) AS NumBookings,
-                COUNT(DISTINCT co.RoomNumber) AS NumRooms,
-                COALESCE(SUM(p.Amount), 0) AS TotalSpent
-            FROM Customer c
-            JOIN Booking b ON c.CustomerID = b.CustomerID
-            JOIN Contains co ON b.BookingID = co.BookingID
-            JOIN Hotel h ON co.HotelID = h.HotelID
-            LEFT JOIN Payment p ON b.BookingID = p.BookingID
-            WHERE (%s IS NULL OR %s IS NULL OR (b.CheckInDate BETWEEN %s AND %s))
-            GROUP BY c.CustomerID, h.HotelID, c.FirstName, c.LastName, h.Name
-            ORDER BY CustomerName, HotelName
-        """, (from_date, to_date, from_date, to_date))
+                COUNT(co.RoomNumber) AS NumRooms,
+                COALESCE(SUM(p.Amount), 0) AS TotalSpent,
+                ROUND(COALESCE(SUM(p.Amount), 0) / NULLIF(COUNT(DISTINCT b.BookingID), 0), 2) AS AvgBookingValue
+            FROM Hotel h
+            JOIN Contains co ON h.HotelID = co.HotelID
+            JOIN Booking b ON co.BookingID = b.BookingID
+            LEFT JOIN Payment p ON b.BookingID = p.BookingID AND p.PaymentStatus = 'completed'
+            WHERE b.CheckInDate BETWEEN %s AND %s
+            GROUP BY h.HotelID, h.Name
+            ORDER BY h.Name
+            LIMIT 10;
+        """, (from_date, to_date))
         report = cursor.fetchall()
 
-        cursor.execute("""
-            SELECT COUNT(DISTINCT b.CustomerID) AS TotalCustomers
-            FROM Booking b
-            WHERE (%s IS NULL OR %s IS NULL OR (b.CheckInDate BETWEEN %s AND %s))
-        """, (from_date, to_date, from_date, to_date))
-        total_customers = cursor.fetchone()['TotalCustomers']
-
-        cursor.execute("""
-            SELECT COALESCE(SUM(p.Amount), 0) AS TotalRevenue
-            FROM Payment p
-            JOIN Booking b ON p.BookingID = b.BookingID
-            WHERE (%s IS NULL OR %s IS NULL OR (b.CheckInDate BETWEEN %s AND %s))
-        """, (from_date, to_date, from_date, to_date))
-        total_revenue = cursor.fetchone()['TotalRevenue']
+        total_customers = sum(row["NumCustomers"] for row in report)
+        total_revenue = sum(row["TotalSpent"] for row in report)
+        total_bookings = sum(row["NumBookings"] for row in report)
 
         cursor.close()
         conn.close()
@@ -658,8 +646,10 @@ def booking_report():
             report=report,
             total_customers=total_customers,
             total_revenue=total_revenue,
+            total_bookings=total_bookings,
             from_date=from_date,
-            to_date=to_date
+            to_date=to_date,
+            default_range_used=default_range_used
         )
 
 

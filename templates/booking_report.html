@@ -101,10 +101,9 @@ table{
 
 <link href='https://fonts.googleapis.com/css?family=Comfortaa:400,700' rel='stylesheet' type='text/css'>
 <h1>Hotel Booking Analytics Report</h1>
-  <h5>Student 2: Shogofa Nawrozy</h5>
+<h5>Student 2: Shogofa Nawrozy</h5>
 
-<section  style="margin-left:450px;">
-
+<section style="margin-left:250px;">
 
    <span>Filter by Booking Date: </span>
  <form action="" method="POST" style="margin-top:10px;">
@@ -116,34 +115,35 @@ table{
 </form>
 
 {% if from_date and to_date %}
-    <h3>Showing bookings from {{ from_date }} to {{ to_date }}</h3>
+    <h3>Showing analytics from {{ from_date }} to {{ to_date }}</h3>
 {% endif %}
-
 <table style="margin-top: 50px;">
   <thead>
     <tr>
       <th>#</th>
-      <th>Customer Name</th>
       <th>Hotel Name</th>
+      <th>Unique Customers</th>
       <th>Number of Bookings</th>
-      <th>Number of Rooms</th>
-      <th>Total Amount Spent ($)</th>
+      <th>Rooms Booked</th>
+      <th>Total Revenue ($)</th>
+      <th>Avg. Booking Value ($)</th>
     </tr>
   </thead>
   <tbody>
     {% for row in report %}
     <tr>
       <td>{{ loop.index }}</td>
-      <th>{{ row.CustomerName }}</th>
       <td>{{ row.HotelName }}</td>
+      <td>{{ row.NumCustomers }}</td>
       <td>{{ row.NumBookings }}</td>
       <td>{{ row.NumRooms }}</td>
       <td>${{ row.TotalSpent|round(2) }}</td>
+      <td>${{ row.AvgBookingValue|round(2) }}</td>
     </tr>
     {% endfor %}
     {% if report|length == 0 %}
     <tr>
-      <td colspan="6" style="text-align:center;">No data for selected date.</td>
+      <td colspan="7" style="text-align:center;">No data for selected date.</td>
     </tr>
     {% endif %}
   </tbody>
@@ -153,12 +153,13 @@ table{
    <p>Summary:</p>
    <p>- Total Customers: {{ total_customers }}</p>
    <p>- Total Revenue: ${{ total_revenue|round(2) }}</p>
-   {% if from_date and to_date %}
-  <p>Showing data from <b>{{ from_date }}</b> to <b>{{ to_date }}</b></p>
+   <p>- Total Bookings: {{ total_bookings }}</p>
+ {% if default_range_used %}
+  <h3>Showing analytics for the last 30 days ({{ from_date }} to {{ to_date }})</h3>
+{% elif from_date and to_date %}
+  <h3>Showing analytics from {{ from_date }} to {{ to_date }}</h3>
 {% endif %}
 </div>
-
-
 
 </section>
 {% include 'include/footer.html' %}
