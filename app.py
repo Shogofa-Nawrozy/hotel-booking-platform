@@ -205,7 +205,7 @@ def login():
         if db_type == 'mongodb':
             user = db.customer.find_one({'Username': username, 'Password': password})
             if user:
-                session['customer_id'] = str(user['CustomerID'])
+                session['customer_id'] = str(user['_id']) 
         else:
             conn = get_db_connection()
             cursor = conn.cursor(dictionary=True)
@@ -235,33 +235,59 @@ def login():
 
     return render_template('login.html', next=next_url)
 
-# Booking list
+    
+
+    # Booking list
 @app.route('/bookings')
 def bookings():
-    db_type = session.get('active_db', 'mariadb')
     customer_id = session.get('customer_id')
     if not customer_id:
         flash("Please log in to view your bookings.", "warning")
         return redirect(url_for('login'))
 
+    db_type = session.get('active_db', 'mariadb')
+    user_exists = False
+
+    # Check if the user still exists in the current database
+    if db_type == 'mongodb':
+        try:
+            user_exists = db.customer.find_one({"_id": ObjectId(customer_id)}) is not None
+        except Exception:
+            user_exists = False
+    else:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT 1 FROM Customer WHERE CustomerID = %s", (customer_id,))
+        user_exists = cursor.fetchone() is not None
+        cursor.close()
+        conn.close()
+
+    if not user_exists:
+        session.clear()
+        flash("Your session has expired or user no longer exists. Please log in again.", "warning")
+        return redirect(url_for('login'))
+
+    # ------------------ MongoDB Booking List --------------------
     if db_type == 'mongodb':
         bookings = []
-        for b in db.booking.find({"CustomerID": int(customer_id)}):
-            # Get rooms for this booking
+        try:
+            cust_obj_id = ObjectId(customer_id)
+        except Exception:
+            cust_obj_id = customer_id  # fallback, just in case
+        for b in db.booking.find({"CustomerID": cust_obj_id}):
             contains = list(db.contains.find({"BookingID": b["_id"]}))
             rooms = []
             hotels = set()
             for c in contains:
-                room = db.room.find_one({"RoomNumber": c["RoomNumber"], "HotelID": c["HotelID"]})
-                hotel = db.hotel.find_one({"HotelID": c["HotelID"]})
+                room = db.room.find_one({"_id": c["RoomID"]})
+                hotel = db.hotel.find_one({"_id": c["HotelID"]})
                 if room and hotel:
                     rooms.append({
                         "RoomNumber": room["RoomNumber"],
                         "HotelName": hotel["Name"],
-                        "PricePerNight": room["PricePerNight"]
+                        "PricePerNight": room.get("PricePerNight", 0)
                     })
                     hotels.add(hotel["Name"])
-            # Payment status
             payments = b.get("payments", [])
             is_paid = all(p["PaymentStatus"] == "completed" for p in payments) and payments
             has_pending = any(p["PaymentStatus"] == "pending" for p in payments)
@@ -348,11 +374,10 @@ def payment():
     if db_type == 'mongodb':
         if request.method == 'POST':
             data = request.get_json()
-            booking_id = data.get('booking_id') or data.get('BookingID')
-            new_payments = data.get('payments', [])
-
-            # Fetch the booking
+            booking_id = data.get('booking_id')
             booking = db.booking.find_one({"_id": ObjectId(booking_id)})
+            new_payments = data.get('payments', [])
+            
             if not booking:
                 return jsonify({"success": False, "error": "Booking not found"}), 404
 
@@ -382,15 +407,10 @@ def payment():
 
         # GET: Show payment page
         booking_id = request.args.get('booking_id')
-        booking_total = request.args.get('booking_total')
-        pending_amount = 0.0
         booking = None
-
         if booking_id:
-            try:
-                booking = db.booking.find_one({"_id": ObjectId(booking_id)})
-            except Exception:
-                booking = None
+            booking = db.booking.find_one({"_id": ObjectId(booking_id)})
+        booking_total = request.args.get('booking_total')
 
         if booking and "payments" in booking:
             pending_amount = sum(
@@ -899,11 +919,12 @@ def blog_details():
 def admin_dashboard():
     return render_template("admin.html")
 
-# Reset MariaDB with dummy data
+
 @app.route('/reset-mariadb')
 def reset_mariadb():
     try:
         result = subprocess.run(['python3', 'mariadb_seeder.py'], capture_output=True, text=True)
+        session.clear()  # Clear any login/session!
         if result.returncode == 0:
             session['active_db'] = 'mariadb'  # Switch to MariaDB after reset
             return render_template("admin.html", message="✅ MariaDB has been reset and repopulated with fake data. Now using MariaDB.")
@@ -912,22 +933,23 @@ def reset_mariadb():
     except Exception as e:
         return render_template("admin.html", message=f"❌ Exception occurred: {str(e)}")
 
-# Migrate data from MariaDB to MongoDB
+
 @app.route('/migrate-sql-to-nosql')
 def migrate_sql_to_nosql():
     try:
         result = subprocess.run(["python", "migrate_sql_to_nosql.py"], capture_output=True, text=True)
+        session.clear()  # logout and wipe session
         if result.returncode == 0:
-            session['active_db'] = 'mongodb'  # Automatically switch
-            return render_template("admin.html", message="✅ Data migrated and MongoDB activated.")
+            session['active_db'] = 'mongodb'
+            return redirect(url_for('index'))
         else:
             return render_template("admin.html", message=f"❌ Migration Error: {result.stderr}")
     except Exception as e:
         return render_template("admin.html", message=f"❌ Exception: {str(e)}")
 
-# Switch to MariaDB
 @app.route('/activate-mariadb')
 def activate_mariadb():
+    session.clear()
     session['active_db'] = 'mariadb'
     return redirect(url_for('index'))
 
