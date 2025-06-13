@@ -831,56 +831,146 @@ def logout():
 @app.route('/room_report', methods=['GET', 'POST'])
 def room_report():
     db_type = session.get('active_db', 'mariadb')
-
     if db_type == 'mongodb':
         # MongoDB: Generate the report for bookings longer than 5 days vs. 5 days or less
         pipeline = [
+            # Step 1: Lookup Contains collection to link with Booking
             {
-                "$project": {
+                "$lookup": {
+                    "from": "contains",  # 'contains' collection name
+                    "localField": "_id",  # 'BookingID' field in Booking collection
+                    "foreignField": "BookingID",  # 'BookingID' field in Contains collection
+                    "as": "contains_data"
+                }
+            },
+            # Step 2: Unwind contains_data to process each entry
+            {
+                "$unwind": "$contains_data"
+            },
+            # Step 3: Lookup Room collection to get room details for each booking
+            {
+                "$lookup": {
+                    "from": "room",  # 'room' collection name
+                    "localField": "contains_data.RoomNumber",  # RoomNumber in Contains
+                    "foreignField": "RoomNumber",  # RoomNumber in Room
+                    "as": "room_data"
+                }
+            },
+            # Step 4: Unwind room_data to process each room entry
+            {
+                "$unwind": "$room_data"
+            },
+            # Step 5: Lookup SuiteRoom collection to check if the room is a suite
+            {
+                "$lookup": {
+                    "from": "suiteroom",  # 'SuiteRoom' collection name
+                    "localField": "room_data.RoomNumber",  # RoomNumber in Room
+                    "foreignField": "RoomNumber",  # RoomNumber in SuiteRoom
+                    "as": "suite_data"
+                }
+            },
+            # Step 6: Add a field to check if the room is a Suite
+            {
+                "$addFields": {
+                    "IsSuite": {
+                        "$cond": [
+                            {"$gt": [{"$size": "$suite_data"}, 0]},  # If suite_data is not empty, it means it's a Suite room
+                            1,  # Mark as Suite (1)
+                            0   # Not a Suite (0)
+                        ]
+                    }
+                }
+            },
+            # Step 7: Add the duration category based on CheckInDate and CheckOutDate
+            {
+                "$addFields": {
                     "DurationCategory": {
                         "$cond": {
-                            "if": {"$gt": [{"$subtract": ["$CheckOutDate", "$CheckInDate"]}, 5]},
+                            "if": {
+                                "$gt": [
+                                    {"$divide": [{"$subtract": ["$CheckOutDate", "$CheckInDate"]}, 86400000]},  # Duration in days
+                                    5
+                                ]
+                            },
                             "then": "More than 5 days",
                             "else": "5 days or less"
                         }
-                    },
-                    "RoomNumber": 1
+                    }
                 }
             },
+            # Step 8: Group by DurationCategory and calculate booking statistics
             {
                 "$group": {
                     "_id": "$DurationCategory",
-                    "NumBookings": {"$sum": 1},
-                    "NumSuites": {
+                    "TotalBookings": {"$sum": 1},  # Count all bookings, each room counts as one booking
+                    "NumSuiteBookings": {
                         "$sum": {
-                            "$cond": [{"$in": ["$RoomNumber", ["Suite"]]}, 1, 0]
+                            "$cond": [
+                                {"$eq": ["$IsSuite", 1]},  # Only count the Suite rooms
+                                1,
+                                0
+                            ]
                         }
                     },
-                    "TotalBookings": {"$sum": 1}
+                    # Step 9: Group by booking ID for Suite room counting
+                    "DistinctSuiteBookings": {
+                        "$addToSet": {
+                            "$cond": [
+                                {"$eq": ["$IsSuite", 1]},  # Only count the Suite rooms
+                                "$contains_data.BookingID",  # Ensure each suite booking is counted once
+                                None  # None for non-suite rooms
+                            ]
+                        }
+                    }
+                }
+            },
+            # Step 10: Add correct count for Suite rooms (distinct bookings)
+            {
+                "$addFields": {
+                    "NumSuiteBookings": {"$size": "$DistinctSuiteBookings"}  # Count distinct Suite bookings
+                }
+            },
+            # Step 11: Sort the results by DurationCategory
+            {
+                "$sort": {
+                    "_id": 1  # Sort by DurationCategory (More than 5 days first, then 5 days or less)
                 }
             }
         ]
-        
+
+
+
+
+
         # Perform aggregation
         results = db.booking.aggregate(pipeline)
-        report_data = list(results)
+        report_data = list(results)  # Convert results to a list
+
+        # If no data for "More than 5 days" or "5 days or less", add a default value
+        if not any(d['_id'] == 'More than 5 days' for d in report_data):
+            report_data.append({"_id": "More than 5 days", "TotalBookings": 0, "NumSuiteBookings": 0})
+        if not any(d['_id'] == '5 days or less' for d in report_data):
+            report_data.append({"_id": "5 days or less", "TotalBookings": 0, "NumSuiteBookings": 0})
+
+        # Print the results
+        print(report_data)
+
+
 
     else:
         # MariaDB Query for Room Booking Duration Report (Total Bookings and Suite Bookings)
         query = """
             SELECT 
                 CASE
-                    WHEN DATEDIFF(CheckOutDate, CheckInDate) > 5 THEN 'More than 5 days'
+                    WHEN DATEDIFF(b.CheckOutDate, b.CheckInDate) > 5 THEN 'More than 5 days'
                     ELSE '5 days or less'
                 END AS DurationCategory,
-                COUNT(*) AS NumBookings,
-                COUNT(DISTINCT CASE WHEN sr.RoomNumber IS NOT NULL THEN b.BookingID END) AS NumSuiteBookings,
-                COUNT(*) AS TotalBookings
+                COUNT(*) AS TotalBookings,  -- All rooms are counted
+                COUNT(DISTINCT CASE WHEN sr.RoomNumber IS NOT NULL THEN b.BookingID END) AS NumSuiteBookings
             FROM Booking b
             JOIN Contains c ON b.BookingID = c.BookingID
-            JOIN Room r ON c.RoomNumber = r.RoomNumber
-            LEFT JOIN SuiteRoom sr ON r.RoomNumber = sr.RoomNumber
-            LEFT JOIN DeluxeRoom dr ON r.RoomNumber = dr.RoomNumber
+            JOIN Room r ON c.RoomNumber = r.RoomNumber AND c.HotelID = r.HotelID
+            LEFT JOIN SuiteRoom sr ON sr.RoomNumber = r.RoomNumber AND sr.HotelID = r.HotelID
             WHERE b.CheckInDate IS NOT NULL AND b.CheckOutDate IS NOT NULL
             GROUP BY DurationCategory
             ORDER BY DurationCategory;
@@ -894,8 +984,6 @@ def room_report():
         conn.close()
 
     return render_template('room_report.html', report_data=report_data)
-
-
 
 #*********************************************************************************************************************************
 
