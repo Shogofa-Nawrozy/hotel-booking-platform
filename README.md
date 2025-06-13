@@ -11,9 +11,6 @@ Clone the project and navigate to the directory.
 
 Start all services:
 
-css
-Copy
-Edit
 docker-compose up --build
 Access in browser:
 
@@ -29,18 +26,13 @@ MariaDB is seeded automatically on first run.
 
 To generate demo data: use “Import Random Data” button or run:
 
-nginx
-Copy
-Edit
-python mariadb_seeder.py
+    python mariadb_seeder.py
+
 NoSQL Migration:
+    Migrate data with “Migrate to MongoDB” in the web UI or run:
 
-Migrate data with “Migrate to MongoDB” in the web UI or run:
+    python migrate_sql_to_nosql.py
 
-nginx
-Copy
-Edit
-python migrate_sql_to_nosql.py
 The backend uses MongoDB after migration.
 
 Analytics Report:
