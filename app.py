@@ -35,8 +35,8 @@ client = MongoClient("mongodb://mongo:27017/")
 db = client["hotel-booking-platform"]
 
 # indexes for analytics (NELIN)
-db.booking.create_index("CheckinDate")
-db.booking.create_index("CheckOutDate")
+db.booking.create_index([("CheckinDate", 1), ("CheckOutDate", 1)])
+
 
 
 app = Flask(__name__)
@@ -864,6 +864,8 @@ def logout():
 @app.route('/room_report', methods=['GET', 'POST'])
 def room_report():
     db_type = session.get('active_db', 'mariadb')
+    report_data = []
+    
     if db_type == 'mongodb':
         pipeline = [
             # Join with Contains collection to get RoomNumber and HotelID
@@ -965,7 +967,11 @@ def room_report():
 
 
         # Perform aggregation
-        results = db.booking.aggregate(pipeline)
+        # Perform aggregation with hint to use the correct index
+        # Perform aggregation with hint to use the correct compound index
+        results = db.booking.aggregate(pipeline, hint="CheckinDate_1_CheckOutDate_1")
+
+
         report_data = list(results)  # Convert results to a list
 
         # If no data for "More than 5 days" or "5 days or less", add a default value
