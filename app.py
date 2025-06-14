@@ -832,12 +832,11 @@ def logout():
 def room_report():
     db_type = session.get('active_db', 'mariadb')
     if db_type == 'mongodb':
-        # MongoDB: Generate the report for bookings longer than 5 days vs. 5 days or less
         pipeline = [
             # Step 1: Lookup Contains collection to link with Booking
             {
                 "$lookup": {
-                    "from": "contains",  # 'contains' collection name
+                    "from": "contains",  # 'Contains' collection name
                     "localField": "_id",  # 'BookingID' field in Booking collection
                     "foreignField": "BookingID",  # 'BookingID' field in Contains collection
                     "as": "contains_data"
@@ -850,7 +849,7 @@ def room_report():
             # Step 3: Lookup Room collection to get room details for each booking
             {
                 "$lookup": {
-                    "from": "room",  # 'room' collection name
+                    "from": "room",  # 'Room' collection name
                     "localField": "contains_data.RoomNumber",  # RoomNumber in Contains
                     "foreignField": "RoomNumber",  # RoomNumber in Room
                     "as": "room_data"
@@ -898,49 +897,40 @@ def room_report():
                     }
                 }
             },
-            # Step 8: Group by DurationCategory and calculate booking statistics
+            # Step 8: Group by BookingID and DurationCategory, then count only suite rooms (if any)
             {
                 "$group": {
-                    "_id": "$DurationCategory",
-                    "TotalBookings": {"$sum": 1},  # Count all bookings, each room counts as one booking
+                    "_id": {
+                        "BookingID": "$_id",  # Group by BookingID first
+                        "DurationCategory": "$DurationCategory"
+                    },
+                    "TotalBookings": {"$sum": 1},  # Count all rooms per booking (total)
                     "NumSuiteBookings": {
                         "$sum": {
                             "$cond": [
-                                {"$eq": ["$IsSuite", 1]},  # Only count the Suite rooms
+                                {"$eq": ["$IsSuite", 1]},  # Only count suite rooms
                                 1,
                                 0
-                            ]
-                        }
-                    },
-                    # Step 9: Group by booking ID for Suite room counting
-                    "DistinctSuiteBookings": {
-                        "$addToSet": {
-                            "$cond": [
-                                {"$eq": ["$IsSuite", 1]},  # Only count the Suite rooms
-                                "$contains_data.BookingID",  # Ensure each suite booking is counted once
-                                None  # None for non-suite rooms
                             ]
                         }
                     }
                 }
             },
-            # Step 10: Add correct count for Suite rooms (distinct bookings)
+            # Step 9: Group by DurationCategory to calculate the final summary
             {
-                "$addFields": {
-                    "NumSuiteBookings": {"$size": "$DistinctSuiteBookings"}  # Count distinct Suite bookings
+                "$group": {
+                    "_id": "$_id.DurationCategory",
+                    "TotalBookings": {"$sum": "$TotalBookings"},  # Summing up total bookings
+                    "NumSuiteBookings": {"$sum": "$NumSuiteBookings"}  # Summing up suite bookings
                 }
             },
-            # Step 11: Sort the results by DurationCategory
+            # Step 10: Sort the results by DurationCategory
             {
                 "$sort": {
-                    "_id": 1  # Sort by DurationCategory (More than 5 days first, then 5 days or less)
+                    "_id": 1  # Sort by DurationCategory
                 }
             }
         ]
-
-
-
-
 
         # Perform aggregation
         results = db.booking.aggregate(pipeline)
