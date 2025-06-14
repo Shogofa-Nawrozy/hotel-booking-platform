@@ -309,7 +309,7 @@ def bookings():
             bookings.append({
                 "_id": b["_id"],
                 "TotalPrice": b["TotalPrice"],
-                "CheckInDate": b["CheckInDate"],
+                "CheckinDate": b["CheckinDate"],
                 "CheckOutDate": b["CheckOutDate"],
                 "Rooms": rooms,
                 "Hotels": list(hotels),
