@@ -866,15 +866,6 @@ def room_report():
     db_type = session.get('active_db', 'mariadb')
     if db_type == 'mongodb':
         pipeline = [
-            {
-                "$match": {
-                    "CheckinDate": {
-                        "$gte": from_dt,
-                        "$lte": to_dt
-                    }
-                }
-            },           
-            
             # Join with Contains collection to get RoomNumber and HotelID
             {
                 "$lookup": {
