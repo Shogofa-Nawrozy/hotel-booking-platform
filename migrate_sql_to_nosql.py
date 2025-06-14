@@ -125,6 +125,13 @@ booking_id_map = {}
 for booking in bookings:
     old_bid = booking["BookingID"]
     booking_clean = fix_types(booking)
+    
+    if "CheckInDate" in booking_clean:
+        booking_clean["CheckinDate"] = booking_clean.pop("CheckInDate")
+    if "CheckOutDate" in booking_clean:
+        booking_clean["CheckOutDate"] = booking_clean.pop("CheckOutDate")
+    
+    
     booking_clean["CustomerID"] = customer_id_map.get(booking_clean["CustomerID"])
     
     cursor.execute("SELECT * FROM Payment WHERE BookingID = %s", (old_bid,))

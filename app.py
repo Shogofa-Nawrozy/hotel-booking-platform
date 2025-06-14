@@ -34,6 +34,11 @@ def get_rooms_from_mongodb():
 client = MongoClient("mongodb://mongo:27017/")
 db = client["hotel-booking-platform"]
 
+# indexes for analytics (NELIN)
+db.booking.create_index("CheckinDate")
+db.booking.create_index("CheckOutDate")
+
+
 app = Flask(__name__)
 app.secret_key = 'verysecretkey'
 app.permanent_session_lifetime = timedelta(minutes=30)
@@ -663,8 +668,8 @@ def booking_report():
 
 @app.route('/start-booking/<room_number>')
 def start_booking(room_number):
-    checkin = request.args.get('checkin')
-    checkout = request.args.get('checkout')
+    checkin = request.args.get('checkin') or request.args.get('date_in')
+    checkout = request.args.get('checkout') or request.args.get('date_out')
 
     if 'customer_id' not in session:
         session['pending_booking'] = {
@@ -679,14 +684,13 @@ def start_booking(room_number):
         })
         return redirect(url_for('login', next=quote(next_path)))
 
-
-
     return redirect(url_for(
         'complete_booking',
         room_number=room_number,
         checkin=checkin,
         checkout=checkout
     ))
+
 
 @app.route('/complete-booking')
 def complete_booking():
@@ -696,8 +700,9 @@ def complete_booking():
         return redirect(url_for('login'))
 
     room_number = request.args.get('room_number')
-    checkin = request.args.get('checkin')
-    checkout = request.args.get('checkout')
+    checkin = request.args.get('checkin') or request.args.get('date_in')
+    checkout = request.args.get('checkout') or request.args.get('date_out')
+
 
     if not all([room_number, checkin, checkout]):
         flash("Missing booking data.", "danger")
@@ -707,7 +712,28 @@ def complete_booking():
 
     if db_type == 'mongodb':
         try:
-            nights = (datetime.strptime(checkout, "%Y-%m-%d") - datetime.strptime(checkin, "%Y-%m-%d")).days
+            if not all([checkin, checkout]):
+                flash("Missing or invalid dates.", "danger")
+                return redirect(url_for('index'))
+
+            # ✅ 1. Tarihleri parse et ve Mongo uyumlu 'naive' datetime nesneleri oluştur
+            try:
+                checkin_dt = datetime.strptime(checkin, "%Y-%m-%d")
+                checkout_dt = datetime.strptime(checkout, "%Y-%m-%d")
+            except ValueError:
+                flash("Invalid date format. Please use YYYY-MM-DD.", "danger")
+                return redirect(url_for('index'))
+
+            checkin_dt = datetime(checkin_dt.year, checkin_dt.month, checkin_dt.day)
+            checkout_dt = datetime(checkout_dt.year, checkout_dt.month, checkout_dt.day)
+
+            # ✅ 2. Gece sayısını hesapla
+            nights = (checkout_dt - checkin_dt).days
+            if nights <= 0:
+                flash("Check-out date must be after check-in date.", "danger")
+                return redirect(url_for('index'))
+
+            # ✅ 3. Oda bilgisi al
             room = db.room.find_one({"RoomNumber": room_number})
             if not room:
                 flash("Room not found.", "danger")
@@ -715,12 +741,14 @@ def complete_booking():
 
             total_price = room.get("PricePerNight", 0) * nights
 
+            # ✅ 4. Booking kaydını oluştur
             booking = {
                 "CustomerID": customer_id,
-                "CheckinDate": checkin,
-                "CheckOutDate": checkout,
+                "CheckinDate": checkin_dt,
+                "CheckOutDate": checkout_dt,
                 "TotalPrice": total_price
             }
+
             booking_result = db.booking.insert_one(booking)
 
             db.contains.insert_one({
@@ -838,6 +866,15 @@ def room_report():
     db_type = session.get('active_db', 'mariadb')
     if db_type == 'mongodb':
         pipeline = [
+            {
+                "$match": {
+                    "CheckinDate": {
+                        "$gte": from_dt,
+                        "$lte": to_dt
+                    }
+                }
+            },           
+            
             # Join with Contains collection to get RoomNumber and HotelID
             {
                 "$lookup": {
@@ -896,7 +933,7 @@ def room_report():
                                 "$gt": [
                                     {
                                         "$dateDiff": {
-                                            "startDate": "$CheckInDate",
+                                            "startDate": "$CheckinDate",
                                             "endDate": "$CheckOutDate",
                                             "unit": "day"
                                         }
