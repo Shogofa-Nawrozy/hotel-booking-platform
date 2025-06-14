@@ -42,8 +42,6 @@
                         </p>
 
                         <div class="mt-4">
-                            <a href="{{ url_for('payment', booking_id=booking.BookingID if booking.BookingID else booking._id|string, booking_total=booking.TotalPrice) }}"
-                               class="primary-btn">Continue with Payment</a>
                             <a href="{{ url_for('room_report') }}" class="primary-btn" style="margin-top: 1rem;">View Room Report</a>
 
                         </div>

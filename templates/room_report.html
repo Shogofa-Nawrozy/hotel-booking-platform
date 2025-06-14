@@ -40,12 +40,12 @@
                             <tbody>
                                 {% for row in report_data %}
                                 <tr>
-                                    <td>{{ row.DurationCategory }}</td>
+                                    <td>{{ row.DurationCategory or row._id }}</td>
                                     <td>{{ row.NumSuiteBookings }}</td>
                                     <td>{{ row.TotalBookings }}</td>
                                 </tr>
                                 {% endfor %}
-                            </tbody>
+                            </tbody>                            
                         </table>
                     </div>
                 </div>
