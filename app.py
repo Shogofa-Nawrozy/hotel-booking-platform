@@ -35,7 +35,11 @@ client = MongoClient("mongodb://mongo:27017/")
 db = client["hotel-booking-platform"]
 
 # indexes for analytics (NELIN)
-db.booking.create_index([("CheckinDate", 1), ("CheckOutDate", 1)])
+db.booking.create_index([("BookingID", 1)])
+db.contains.create_index([("BookingID", 1)])
+db.room.create_index([("RoomNumber", 1), ("HotelID", 1)])
+db.booking.create_index([("_id", 1)])
+
 
 
 
@@ -865,7 +869,7 @@ def logout():
 def room_report():
     db_type = session.get('active_db', 'mariadb')
     report_data = []
-    
+
     if db_type == 'mongodb':
         pipeline = [
             # Join with Contains collection to get RoomNumber and HotelID
@@ -941,7 +945,6 @@ def room_report():
                 }
             },
 
-
             # Group by DurationCategory
             {
                 "$group": {
@@ -963,14 +966,11 @@ def room_report():
             }
         ]
 
-
-
-
-        # Perform aggregation
-        # Perform aggregation with hint to use the correct index
-        # Perform aggregation with hint to use the correct compound index
-        results = db.booking.aggregate(pipeline, hint="CheckinDate_1_CheckOutDate_1")
-
+        # Perform aggregation with the correct index hints
+        results = db.booking.aggregate(
+            pipeline,
+            hint={"BookingID": 1}  # Use the BookingID_1 index for the lookup on BookingID
+        )
 
         report_data = list(results)  # Convert results to a list
 
@@ -983,7 +983,7 @@ def room_report():
         # Print the results
         print(report_data)
 
-
+        return render_template('room_report.html', report_data=report_data)
 
     else:
         # MariaDB Query for Room Booking Duration Report (Total Bookings and Suite Bookings)

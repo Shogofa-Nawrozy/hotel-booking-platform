@@ -35,10 +35,12 @@
                         <h4>
                             {{ hotel.Name if hotel else booking.HotelName }} (Room {{ room.RoomNumber if room else booking.RoomNumber }})
                         </h4>
-                        <h5>{{ booking.TotalPrice }}$ <span>Total Price</span></h5>
+                        <h5>{{ '{:,.2f}'.format(booking.TotalPrice) if booking.TotalPrice else 'N/A' }}$
+                            <span>Total Price</span>
+                        </h5>
                         <p>
-                            <b>Check-in:</b> {{ booking.CheckinDate if booking.CheckinDate else booking.CheckInDate }}<br>
-                            <b>Check-out:</b> {{ booking.CheckOutDate }}
+                            <b>Check-in:</b> {{ booking.CheckinDate.strftime('%d-%m-%Y') }}<br>
+                            <b>Check-out:</b> {{ booking.CheckOutDate.strftime('%d-%m-%Y') }}
                         </p>
 
                         <div class="mt-4">
