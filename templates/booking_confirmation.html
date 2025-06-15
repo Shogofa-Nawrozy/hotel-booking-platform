@@ -37,11 +37,21 @@
                         </h4>
                         <h5>{{ '{:,.2f}'.format(booking.TotalPrice) if booking.TotalPrice else 'N/A' }}$
                             <span>Total Price</span>
-                        </h5>
-                        <p>
-                            <b>Check-in:</b> {{ booking.CheckinDate.strftime('%d-%m-%Y') }}<br>
-                            <b>Check-out:</b> {{ booking.CheckOutDate.strftime('%d-%m-%Y') }}
-                        </p>
+                            <p>
+                                <b>Check-in:</b> 
+                                {% if active_db == 'mongodb' %}
+                                    {{ booking.CheckinDate.strftime('%d-%m-%Y') }}
+                                {% else %}
+                                    {{ booking.CheckInDate.strftime('%d-%m-%Y') }}
+                                {% endif %}<br>
+                                <b>Check-out:</b> 
+                                {% if active_db == 'mongodb' %}
+                                    {{ booking.CheckOutDate.strftime('%d-%m-%Y') }}
+                                {% else %}
+                                    {{ booking.CheckOutDate.strftime('%d-%m-%Y') }}
+                                {% endif %}
+                            </p>
+                            
 
                         <div class="mt-4">
                             <a href="{{ url_for('room_report') }}" class="primary-btn" style="margin-top: 1rem;">View Room Report</a>
