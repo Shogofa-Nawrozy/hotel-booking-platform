@@ -7,6 +7,8 @@ import mysql.connector
 import os  # Needed for environment variable access
 from bson import ObjectId
 from bson.errors import InvalidId
+from dateutil.parser import parse
+
 
 # Create a connection to MariaDB
 def get_db_connection():
@@ -260,34 +262,14 @@ def bookings():
         return redirect(url_for('login'))
 
     db_type = session.get('active_db', 'mariadb')
-    user_exists = False
+    bookings = []
 
-    # Check if the user still exists in the current database
     if db_type == 'mongodb':
-        try:
-            user_exists = db.customer.find_one({"_id": ObjectId(customer_id)}) is not None
-        except Exception:
-            user_exists = False
-    else:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT 1 FROM Customer WHERE CustomerID = %s", (customer_id,))
-        user_exists = cursor.fetchone() is not None
-        cursor.close()
-        conn.close()
-
-    if not user_exists:
-        session.clear()
-        flash("Your session has expired or user no longer exists. Please log in again.", "warning")
-        return redirect(url_for('login'))
-
-    # ------------------ MongoDB Booking List --------------------
-    if db_type == 'mongodb':
-        bookings = []
         try:
             cust_obj_id = ObjectId(customer_id)
         except Exception:
-            cust_obj_id = customer_id  # fallback, just in case
+            cust_obj_id = customer_id
+
         for b in db.booking.find({"CustomerID": cust_obj_id}):
             contains = list(db.contains.find({"BookingID": b["_id"]}))
             rooms = []
@@ -297,88 +279,87 @@ def bookings():
                 hotel = db.hotel.find_one({"_id": c["HotelID"]})
                 if room and hotel:
                     rooms.append({
-                        "RoomNumber": room["RoomNumber"],
-                        "HotelName": hotel["Name"],
+                        "RoomNumber": room.get("RoomNumber", ""),
+                        "HotelName": hotel.get("Name", ""),
                         "PricePerNight": room.get("PricePerNight", 0)
                     })
-                    hotels.add(hotel["Name"])
+                    hotels.add(hotel.get("Name", ""))
             payments = b.get("payments", [])
-            is_paid = all(p["PaymentStatus"] == "completed" for p in payments) and payments
-            has_pending = any(p["PaymentStatus"] == "pending" for p in payments)
-            pending_amount = sum(p["Amount"] for p in payments if p["PaymentStatus"] == "pending")
+            # Calculate the pending amount: sum of all pending payments
+            pending_amount = sum(p.get("Amount", 0) for p in payments if p.get("PaymentStatus") == "pending")
+            is_paid = all(p.get("PaymentStatus") == "completed" for p in payments) and payments
+            has_pending = any(p.get("PaymentStatus") == "pending" for p in payments)
             bookings.append({
-                "_id": b["_id"],
-                "TotalPrice": b["TotalPrice"],
-                "CheckinDate": b["CheckinDate"],
-                "CheckOutDate": b["CheckOutDate"],
+                "_id": b.get("_id"),
+                "TotalPrice": b.get("TotalPrice", 0),
+                "CheckInDate": b.get("CheckInDate") or b.get("CheckinDate") or "",
+                "CheckOutDate": b.get("CheckOutDate") or b.get("CheckoutDate") or "",
                 "Rooms": rooms,
                 "Hotels": list(hotels),
                 "NumRooms": len(rooms),
                 "is_paid": is_paid,
                 "has_pending": has_pending,
-                "PendingAmount": pending_amount
+                "PendingAmount": pending_amount,  # This will be the "amount to pay now"
             })
         return render_template('bookings.html', bookings=bookings)
-    else:
-        # MariaDB logic
+
+    else:  # MariaDB logic
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
             SELECT 
                 b.BookingID, b.TotalPrice, b.CheckInDate, b.CheckOutDate,
-                r.RoomNumber, r.PricePerNight, h.Name AS HotelName, h.Rating AS HotelRating,
-                rv.Rating AS ReviewRating
+                r.RoomNumber, r.PricePerNight, h.Name AS HotelName
             FROM Booking b
             JOIN Contains c ON b.BookingID = c.BookingID
-            JOIN Room r ON c.HotelID = r.HotelID AND c.RoomNumber = r.RoomNumber
+            JOIN Room r ON c.RoomNumber = r.RoomNumber AND c.HotelID = r.HotelID
             JOIN Hotel h ON r.HotelID = h.HotelID
-            LEFT JOIN (
-                            SELECT CustomerID, HotelID, MAX(Rating) AS Rating
-                            FROM Review
-                            GROUP BY CustomerID, HotelID
-                        ) rv ON rv.CustomerID = b.CustomerID AND rv.HotelID = h.HotelID
             WHERE b.CustomerID = %s
             ORDER BY b.BookingID DESC
         """, (customer_id,))
         rows = cursor.fetchall()
 
-        # Group by BookingID
         bookings_dict = {}
         for row in rows:
             bid = row['BookingID']
             if bid not in bookings_dict:
                 bookings_dict[bid] = {
                     'BookingID': bid,
-                    'TotalPrice': row['TotalPrice'],
-                    'CheckInDate': row['CheckInDate'],
-                    'CheckOutDate': row['CheckOutDate'],
+                    'TotalPrice': row.get('TotalPrice', 0),
+                    'CheckInDate': row.get('CheckInDate', ''),
+                    'CheckOutDate': row.get('CheckOutDate', ''),
                     'Rooms': [],
                     'Hotels': set(),
                 }
             bookings_dict[bid]['Rooms'].append({
-                'RoomNumber': row['RoomNumber'],
-                'HotelName': row['HotelName'],
-                'PricePerNight': row['PricePerNight'],
-                'HotelRating': row['HotelRating'],
-                'ReviewRating': row['ReviewRating'],
+                'RoomNumber': row.get('RoomNumber', ''),
+                'HotelName': row.get('HotelName', ''),
+                'PricePerNight': row.get('PricePerNight', 0),
             })
-            bookings_dict[bid]['Hotels'].add(row['HotelName'])
+            bookings_dict[bid]['Hotels'].add(row.get('HotelName', ''))
 
-        # Add payment status
+        # For each booking, fetch payments and determine paid/pending status and pending amount
         for booking in bookings_dict.values():
-            cursor.execute("SELECT PaymentStatus, Amount FROM Payment WHERE BookingID = %s", (booking['BookingID'],))
+            cursor.execute(
+                "SELECT PaymentStatus, Amount FROM Payment WHERE BookingID = %s",
+                (booking['BookingID'],)
+            )
             payment_rows = cursor.fetchall()
-            booking['is_paid'] = all(row['PaymentStatus'] == 'completed' for row in payment_rows) and payment_rows
-            booking['has_pending'] = any(row['PaymentStatus'] == 'pending' for row in payment_rows)
+            payments = payment_rows
+            is_paid = all(row['PaymentStatus'] == 'completed' for row in payment_rows) and payment_rows
+            has_pending = any(row['PaymentStatus'] == 'pending' for row in payment_rows)
+            pending_amount = sum(row['Amount'] for row in payment_rows if row['PaymentStatus'] == 'pending')
+            booking['is_paid'] = is_paid
+            booking['has_pending'] = has_pending
+            booking['PendingAmount'] = pending_amount  # <-- "Amount to pay now"
             booking['NumRooms'] = len(booking['Rooms'])
             booking['Hotels'] = list(booking['Hotels'])
-            # Calculate pending amount
-            booking['PendingAmount'] = sum(row['Amount'] for row in payment_rows if row['PaymentStatus'] == 'pending')
-
         cursor.close()
         conn.close()
         bookings = list(bookings_dict.values())
         return render_template('bookings.html', bookings=bookings)
+
+
 
 
 # Payments list
@@ -386,38 +367,45 @@ def bookings():
 def payment():
     db_type = session.get('active_db', 'mariadb')
     if db_type == 'mongodb':
+        from dateutil.parser import parse
         if request.method == 'POST':
             data = request.get_json()
             booking_id = data.get('booking_id')
-            booking = db.booking.find_one({"_id": ObjectId(booking_id)})
             new_payments = data.get('payments', [])
-            
+
+            if not booking_id or not new_payments:
+                return jsonify({"success": False, "error": "Invalid input"}), 400
+
+            booking = db.booking.find_one({"_id": ObjectId(booking_id)})
             if not booking:
                 return jsonify({"success": False, "error": "Booking not found"}), 404
 
-            # Update the payments array
+            # Find and update the corresponding pending payment(s)
+            updated = False
             existing_payments = booking.get("payments", [])
             for new_payment in new_payments:
-                # Find the pending payment to update
                 for payment in existing_payments:
-                    if (
-                        payment.get("PaymentNumber") == new_payment.get("PaymentNumber")
-                        and payment.get("PaymentStatus") == "pending"
-                    ):
-                        # Update fields
-                        payment.update(new_payment)
+                    # Find the pending payment with matching Amount
+                    if (payment.get("PaymentStatus") == "pending"
+                        and float(payment.get("Amount", 0)) == float(new_payment.get("Amount", 0))):
+                        # Update the payment fields
                         payment["PaymentStatus"] = "completed"
-                        payment["PaymentDate"] = new_payment.get("PaymentDate")
+                        payment["PaymentDate"] = parse(new_payment.get("PaymentDate")) if isinstance(new_payment.get("PaymentDate"), str) else new_payment.get("PaymentDate")
                         payment["PaymentMethod"] = new_payment.get("PaymentMethod")
                         payment["CardNumber"] = new_payment.get("CardNumber")
-                        payment["ExpiryDate"] = new_payment.get("ExpiryDate")
+                        payment["ExpiryDate"] = parse(new_payment.get("ExpiryDate")) if isinstance(new_payment.get("ExpiryDate"), str) and new_payment.get("ExpiryDate") else new_payment.get("ExpiryDate")
                         payment["CVV"] = new_payment.get("CVV")
-            # Save back to DB
-            db.booking.update_one(
-                {"_id": ObjectId(booking_id)},
-                {"$set": {"payments": existing_payments}}
-            )
-            return jsonify({"success": True})
+                        updated = True
+                        break  # Stop after updating first pending payment
+
+            if updated:
+                db.booking.update_one(
+                    {"_id": ObjectId(booking_id)},
+                    {"$set": {"payments": existing_payments}}
+                )
+                return jsonify({"success": True})
+            else:
+                return jsonify({"success": False, "error": "No matching pending payment found"}), 400
 
         # GET: Show payment page
         booking_id = request.args.get('booking_id')
@@ -426,13 +414,16 @@ def payment():
             booking = db.booking.find_one({"_id": ObjectId(booking_id)})
         booking_total = request.args.get('booking_total')
 
+        pending_amount = 0
+        has_pending = False
         if booking and "payments" in booking:
             pending_amount = sum(
                 float(p.get("Amount", 0))
                 for p in booking["payments"]
                 if p.get("PaymentStatus") == "pending"
             )
-        has_pending = pending_amount > 0
+            has_pending = pending_amount > 0
+
         try:
             booking_total = float(booking_total)
         except (TypeError, ValueError):
@@ -519,7 +510,6 @@ def payment():
             has_pending=has_pending
         )
 
-
 @app.route('/booking_report', methods=['GET', 'POST'])
 def booking_report():
     db_type = session.get('active_db', 'mariadb')
@@ -544,8 +534,13 @@ def booking_report():
         default_range_used = False
 
     if db_type == 'mongodb':
-        # Build the MongoDB pipeline
-        match_stage = {"CheckInDate": {"$gte": from_dt, "$lte": to_dt}}
+        # Try both 'CheckInDate' and 'CheckinDate' to match your schema
+        match_stage = {
+            "$or": [
+                {"CheckInDate": {"$gte": from_dt, "$lte": to_dt}},
+                {"CheckinDate": {"$gte": from_dt, "$lte": to_dt}}
+            ]
+        }
         pipeline = [
             {"$match": match_stage},
             {"$lookup": {
@@ -557,19 +552,21 @@ def booking_report():
             {"$unwind": "$contains"},
             {"$match": {"contains.HotelID": {"$exists": True}}},
             {"$addFields": {
-                "TotalPaid": {"$sum": {
-                    "$map": {
-                        "input": "$payments",
-                        "as": "pay",
-                        "in": {
-                            "$cond": [
-                                {"$eq": ["$$pay.PaymentStatus", "completed"]},
-                                "$$pay.Amount",
-                                0
-                            ]
+                "TotalPaid": {
+                    "$sum": {
+                        "$map": {
+                            "input": "$payments",
+                            "as": "pay",
+                            "in": {
+                                "$cond": [
+                                    {"$eq": ["$$pay.PaymentStatus", "completed"]},
+                                    "$$pay.Amount",
+                                    0
+                                ]
+                            }
                         }
                     }
-                }}
+                }
             }},
             {"$group": {
                 "_id": "$contains.HotelID",

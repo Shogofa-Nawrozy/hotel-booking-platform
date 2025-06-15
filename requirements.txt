@@ -2,3 +2,4 @@ Flask
 pymongo
 Faker
 mysql-connector-python
+python-dateutil
