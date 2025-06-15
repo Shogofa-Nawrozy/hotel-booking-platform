@@ -367,12 +367,10 @@ def bookings():
 def payment():
     db_type = session.get('active_db', 'mariadb')
     if db_type == 'mongodb':
-        from dateutil.parser import parse
         if request.method == 'POST':
             data = request.get_json()
             booking_id = data.get('booking_id')
             new_payments = data.get('payments', [])
-
             if not booking_id or not new_payments:
                 return jsonify({"success": False, "error": "Invalid input"}), 400
 
@@ -380,49 +378,53 @@ def payment():
             if not booking:
                 return jsonify({"success": False, "error": "Booking not found"}), 404
 
-            # Find and update the corresponding pending payment(s)
-            updated = False
             existing_payments = booking.get("payments", [])
-            for new_payment in new_payments:
-                for payment in existing_payments:
-                    # Find the pending payment with matching Amount
-                    if (payment.get("PaymentStatus") == "pending"
-                        and float(payment.get("Amount", 0)) == float(new_payment.get("Amount", 0))):
-                        # Update the payment fields
-                        payment["PaymentStatus"] = "completed"
-                        payment["PaymentDate"] = parse(new_payment.get("PaymentDate")) if isinstance(new_payment.get("PaymentDate"), str) else new_payment.get("PaymentDate")
-                        payment["PaymentMethod"] = new_payment.get("PaymentMethod")
-                        payment["CardNumber"] = new_payment.get("CardNumber")
-                        payment["ExpiryDate"] = parse(new_payment.get("ExpiryDate")) if isinstance(new_payment.get("ExpiryDate"), str) and new_payment.get("ExpiryDate") else new_payment.get("ExpiryDate")
-                        payment["CVV"] = new_payment.get("CVV")
-                        updated = True
-                        break  # Stop after updating first pending payment
 
-            if updated:
-                db.booking.update_one(
-                    {"_id": ObjectId(booking_id)},
-                    {"$set": {"payments": existing_payments}}
-                )
-                return jsonify({"success": True})
+            # Check if there's a pending payment (second installment)
+            pending_payment_idx = next((i for i, p in enumerate(existing_payments) if p.get("PaymentStatus") == "pending"), None)
+            if pending_payment_idx is not None:
+                # User is paying the second installment: update only the pending payment
+                pay = new_payments[0]
+                existing_payments[pending_payment_idx].update({
+                    "PaymentMethod": pay.get("PaymentMethod"),
+                    "PaymentDate": pay.get("PaymentDate"),
+                    "Amount": pay.get("Amount"),
+                    "CardNumber": pay.get("CardNumber"),
+                    "ExpiryDate": pay.get("ExpiryDate"),
+                    "CVV": pay.get("CVV"),
+                    "PaymentStatus": "completed"
+                })
             else:
-                return jsonify({"success": False, "error": "No matching pending payment found"}), 400
+                # User is making the first payment (full or first installment)
+                if len(new_payments) == 1:
+                    # Full payment
+                    existing_payments.append(new_payments[0])
+                elif len(new_payments) == 2:
+                    # Installment: add both completed (first half) and pending (second half)
+                    existing_payments.append(new_payments[0])  # paid now
+                    existing_payments.append(new_payments[1])  # pending
+
+            db.booking.update_one(
+                {"_id": ObjectId(booking_id)},
+                {"$set": {"payments": existing_payments}}
+            )
+            return jsonify({"success": True})
 
         # GET: Show payment page
         booking_id = request.args.get('booking_id')
-        booking = None
-        if booking_id:
-            booking = db.booking.find_one({"_id": ObjectId(booking_id)})
+        booking = db.booking.find_one({"_id": ObjectId(booking_id)}) if booking_id else None
         booking_total = request.args.get('booking_total')
 
+        # Default values
         pending_amount = 0
         has_pending = False
+
         if booking and "payments" in booking:
-            pending_amount = sum(
-                float(p.get("Amount", 0))
-                for p in booking["payments"]
-                if p.get("PaymentStatus") == "pending"
-            )
-            has_pending = pending_amount > 0
+            # Only allow to pay the pending amount if there is a pending payment
+            pending = [p for p in booking["payments"] if p.get("PaymentStatus") == "pending"]
+            if pending:
+                pending_amount = float(pending[0].get("Amount", 0))
+                has_pending = True
 
         try:
             booking_total = float(booking_total)
