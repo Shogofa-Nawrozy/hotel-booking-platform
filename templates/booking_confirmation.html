@@ -35,15 +35,25 @@
                         <h4>
                             {{ hotel.Name if hotel else booking.HotelName }} (Room {{ room.RoomNumber if room else booking.RoomNumber }})
                         </h4>
-                        <h5>{{ booking.TotalPrice }}$ <span>Total Price</span></h5>
-                        <p>
-                            <b>Check-in:</b> {{ booking.CheckinDate if booking.CheckinDate else booking.CheckInDate }}<br>
-                            <b>Check-out:</b> {{ booking.CheckOutDate }}
-                        </p>
+                        <h5>{{ '{:,.2f}'.format(booking.TotalPrice) if booking.TotalPrice else 'N/A' }}$
+                            <span>Total Price</span>
+                            <p>
+                                <b>Check-in:</b> 
+                                {% if active_db == 'mongodb' %}
+                                    {{ booking.CheckinDate.strftime('%d-%m-%Y') }}
+                                {% else %}
+                                    {{ booking.CheckInDate.strftime('%d-%m-%Y') }}
+                                {% endif %}<br>
+                                <b>Check-out:</b> 
+                                {% if active_db == 'mongodb' %}
+                                    {{ booking.CheckOutDate.strftime('%d-%m-%Y') }}
+                                {% else %}
+                                    {{ booking.CheckOutDate.strftime('%d-%m-%Y') }}
+                                {% endif %}
+                            </p>
+                            
 
                         <div class="mt-4">
-                            <a href="{{ url_for('payment', booking_id=booking.BookingID if booking.BookingID else booking._id|string, booking_total=booking.TotalPrice) }}"
-                               class="primary-btn">Continue with Payment</a>
                             <a href="{{ url_for('room_report') }}" class="primary-btn" style="margin-top: 1rem;">View Room Report</a>
 
                         </div>

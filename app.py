@@ -34,6 +34,15 @@ def get_rooms_from_mongodb():
 client = MongoClient("mongodb://mongo:27017/")
 db = client["hotel-booking-platform"]
 
+# indexes for analytics (NELIN)
+db.booking.create_index([("BookingID", 1)])
+db.contains.create_index([("BookingID", 1)])
+db.room.create_index([("RoomNumber", 1), ("HotelID", 1)])
+db.booking.create_index([("_id", 1)])
+
+
+
+
 app = Flask(__name__)
 app.secret_key = 'verysecretkey'
 app.permanent_session_lifetime = timedelta(minutes=30)
@@ -59,7 +68,6 @@ def index():
 
 
 
-# Rooms listing with filtering logic
 @app.route('/rooms')
 def rooms():
     db_type = session.get("active_db", "mariadb")
@@ -90,19 +98,17 @@ def rooms():
     checkout_str = checkout_date.strftime("%Y-%m-%d") if checkout_date else None
 
     if db_type == "mongodb":
-        # MongoDB: Base query
         room_query = {"Status": "available"}
         if guests and guests.isdigit():
             room_query["MaxGuests"] = {"$gte": int(guests)}
+
         all_rooms = list(db.room.find(room_query))
 
-        # Room type filter
+        # Room type filter using embedded fields
         if room_type == "Suite":
-            suite_numbers = set(r["RoomNumber"] for r in db.suiteroom.find())
-            all_rooms = [r for r in all_rooms if r["RoomNumber"] in suite_numbers]
+            all_rooms = [r for r in all_rooms if "suite" in r]
         elif room_type == "Deluxe":
-            deluxe_numbers = set(r["RoomNumber"] for r in db.deluxeroom.find())
-            all_rooms = [r for r in all_rooms if r["RoomNumber"] in deluxe_numbers]
+            all_rooms = [r for r in all_rooms if "deluxe" in r]
 
         # Filter out booked rooms
         if checkin_str and checkout_str:
@@ -131,7 +137,6 @@ def rooms():
         available_rooms = all_rooms
 
     else:
-        # MariaDB: Build dynamic SQL query
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
 
@@ -143,14 +148,23 @@ def rooms():
             params.append(int(guests))
 
         if room_type == "Suite":
-            query += " AND RoomNumber IN (SELECT RoomNumber FROM SuiteRoom)"
+            query += """
+                AND EXISTS (
+                    SELECT 1 FROM SuiteRoom s
+                    WHERE s.RoomNumber = Room.RoomNumber AND s.HotelID = Room.HotelID
+                )
+            """
         elif room_type == "Deluxe":
-            query += " AND RoomNumber IN (SELECT RoomNumber FROM DeluxeRoom)"
+            query += """
+                AND EXISTS (
+                    SELECT 1 FROM DeluxeRoom d
+                    WHERE d.RoomNumber = Room.RoomNumber AND d.HotelID = Room.HotelID
+                )
+            """
 
         cursor.execute(query, params)
         all_rooms = cursor.fetchall()
 
-        # Filter out booked rooms
         if checkin_str and checkout_str:
             cursor.execute("""
                 SELECT DISTINCT c.RoomNumber
@@ -295,7 +309,7 @@ def bookings():
             bookings.append({
                 "_id": b["_id"],
                 "TotalPrice": b["TotalPrice"],
-                "CheckInDate": b["CheckInDate"],
+                "CheckinDate": b["CheckinDate"],
                 "CheckOutDate": b["CheckOutDate"],
                 "Rooms": rooms,
                 "Hotels": list(hotels),
@@ -658,8 +672,8 @@ def booking_report():
 
 @app.route('/start-booking/<room_number>')
 def start_booking(room_number):
-    checkin = request.args.get('checkin')
-    checkout = request.args.get('checkout')
+    checkin = request.args.get('checkin') or request.args.get('date_in')
+    checkout = request.args.get('checkout') or request.args.get('date_out')
 
     if 'customer_id' not in session:
         session['pending_booking'] = {
@@ -674,14 +688,13 @@ def start_booking(room_number):
         })
         return redirect(url_for('login', next=quote(next_path)))
 
-
-
     return redirect(url_for(
         'complete_booking',
         room_number=room_number,
         checkin=checkin,
         checkout=checkout
     ))
+
 
 @app.route('/complete-booking')
 def complete_booking():
@@ -691,8 +704,9 @@ def complete_booking():
         return redirect(url_for('login'))
 
     room_number = request.args.get('room_number')
-    checkin = request.args.get('checkin')
-    checkout = request.args.get('checkout')
+    checkin = request.args.get('checkin') or request.args.get('date_in')
+    checkout = request.args.get('checkout') or request.args.get('date_out')
+
 
     if not all([room_number, checkin, checkout]):
         flash("Missing booking data.", "danger")
@@ -702,7 +716,28 @@ def complete_booking():
 
     if db_type == 'mongodb':
         try:
-            nights = (datetime.strptime(checkout, "%Y-%m-%d") - datetime.strptime(checkin, "%Y-%m-%d")).days
+            if not all([checkin, checkout]):
+                flash("Missing or invalid dates.", "danger")
+                return redirect(url_for('index'))
+
+            # ✅ 1. Tarihleri parse et ve Mongo uyumlu 'naive' datetime nesneleri oluştur
+            try:
+                checkin_dt = datetime.strptime(checkin, "%Y-%m-%d")
+                checkout_dt = datetime.strptime(checkout, "%Y-%m-%d")
+            except ValueError:
+                flash("Invalid date format. Please use YYYY-MM-DD.", "danger")
+                return redirect(url_for('index'))
+
+            checkin_dt = datetime(checkin_dt.year, checkin_dt.month, checkin_dt.day)
+            checkout_dt = datetime(checkout_dt.year, checkout_dt.month, checkout_dt.day)
+
+            # ✅ 2. Gece sayısını hesapla
+            nights = (checkout_dt - checkin_dt).days
+            if nights <= 0:
+                flash("Check-out date must be after check-in date.", "danger")
+                return redirect(url_for('index'))
+
+            # ✅ 3. Oda bilgisi al
             room = db.room.find_one({"RoomNumber": room_number})
             if not room:
                 flash("Room not found.", "danger")
@@ -710,12 +745,14 @@ def complete_booking():
 
             total_price = room.get("PricePerNight", 0) * nights
 
+            # ✅ 4. Booking kaydını oluştur
             booking = {
                 "CustomerID": customer_id,
-                "CheckinDate": checkin,
-                "CheckOutDate": checkout,
+                "CheckinDate": checkin_dt,
+                "CheckOutDate": checkout_dt,
                 "TotalPrice": total_price
             }
+
             booking_result = db.booking.insert_one(booking)
 
             db.contains.insert_one({
@@ -831,64 +868,73 @@ def logout():
 @app.route('/room_report', methods=['GET', 'POST'])
 def room_report():
     db_type = session.get('active_db', 'mariadb')
+    report_data = []
+
     if db_type == 'mongodb':
-        # MongoDB: Generate the report for bookings longer than 5 days vs. 5 days or less
         pipeline = [
-            # Step 1: Lookup Contains collection to link with Booking
+            # Join with Contains collection to get RoomNumber and HotelID
             {
                 "$lookup": {
-                    "from": "contains",  # 'contains' collection name
-                    "localField": "_id",  # 'BookingID' field in Booking collection
-                    "foreignField": "BookingID",  # 'BookingID' field in Contains collection
+                    "from": "contains",
+                    "localField": "_id",  # BookingID
+                    "foreignField": "BookingID",
                     "as": "contains_data"
                 }
             },
-            # Step 2: Unwind contains_data to process each entry
-            {
-                "$unwind": "$contains_data"
-            },
-            # Step 3: Lookup Room collection to get room details for each booking
+            { "$unwind": "$contains_data" },
+
+            # Join with Room collection (RoomNumber + HotelID)
             {
                 "$lookup": {
-                    "from": "room",  # 'room' collection name
-                    "localField": "contains_data.RoomNumber",  # RoomNumber in Contains
-                    "foreignField": "RoomNumber",  # RoomNumber in Room
+                    "from": "room",
+                    "let": {
+                        "rn": "$contains_data.RoomNumber",
+                        "hid": "$contains_data.HotelID"
+                    },
+                    "pipeline": [
+                        {
+                            "$match": {
+                                "$expr": {
+                                    "$and": [
+                                        { "$eq": ["$RoomNumber", "$$rn"] },
+                                        { "$eq": ["$HotelID", "$$hid"] }
+                                    ]
+                                }
+                            }
+                        }
+                    ],
                     "as": "room_data"
                 }
             },
-            # Step 4: Unwind room_data to process each room entry
-            {
-                "$unwind": "$room_data"
-            },
-            # Step 5: Lookup SuiteRoom collection to check if the room is a suite
-            {
-                "$lookup": {
-                    "from": "suiteroom",  # 'SuiteRoom' collection name
-                    "localField": "room_data.RoomNumber",  # RoomNumber in Room
-                    "foreignField": "RoomNumber",  # RoomNumber in SuiteRoom
-                    "as": "suite_data"
-                }
-            },
-            # Step 6: Add a field to check if the room is a Suite
+            { "$unwind": "$room_data" },
+
+            # Instead of SuiteRoom lookup, directly check if 'suite' field exists in room_data
             {
                 "$addFields": {
                     "IsSuite": {
                         "$cond": [
-                            {"$gt": [{"$size": "$suite_data"}, 0]},  # If suite_data is not empty, it means it's a Suite room
-                            1,  # Mark as Suite (1)
-                            0   # Not a Suite (0)
+                            { "$ifNull": ["$room_data.suite", False] },  # suite field exists → true
+                            1,
+                            0
                         ]
                     }
                 }
             },
-            # Step 7: Add the duration category based on CheckInDate and CheckOutDate
+
+            # Compute DurationCategory
             {
                 "$addFields": {
                     "DurationCategory": {
                         "$cond": {
                             "if": {
                                 "$gt": [
-                                    {"$divide": [{"$subtract": ["$CheckOutDate", "$CheckInDate"]}, 86400000]},  # Duration in days
+                                    {
+                                        "$dateDiff": {
+                                            "startDate": "$CheckinDate",
+                                            "endDate": "$CheckOutDate",
+                                            "unit": "day"
+                                        }
+                                    },
                                     5
                                 ]
                             },
@@ -898,52 +944,34 @@ def room_report():
                     }
                 }
             },
-            # Step 8: Group by DurationCategory and calculate booking statistics
+
+            # Group by DurationCategory
             {
                 "$group": {
                     "_id": "$DurationCategory",
-                    "TotalBookings": {"$sum": 1},  # Count all bookings, each room counts as one booking
+                    "TotalBookings": { "$sum": 1 },
                     "NumSuiteBookings": {
                         "$sum": {
-                            "$cond": [
-                                {"$eq": ["$IsSuite", 1]},  # Only count the Suite rooms
-                                1,
-                                0
-                            ]
-                        }
-                    },
-                    # Step 9: Group by booking ID for Suite room counting
-                    "DistinctSuiteBookings": {
-                        "$addToSet": {
-                            "$cond": [
-                                {"$eq": ["$IsSuite", 1]},  # Only count the Suite rooms
-                                "$contains_data.BookingID",  # Ensure each suite booking is counted once
-                                None  # None for non-suite rooms
-                            ]
+                            "$cond": [{ "$eq": ["$IsSuite", 1] }, 1, 0]
                         }
                     }
                 }
             },
-            # Step 10: Add correct count for Suite rooms (distinct bookings)
-            {
-                "$addFields": {
-                    "NumSuiteBookings": {"$size": "$DistinctSuiteBookings"}  # Count distinct Suite bookings
-                }
-            },
-            # Step 11: Sort the results by DurationCategory
+
+            # Sort results
             {
                 "$sort": {
-                    "_id": 1  # Sort by DurationCategory (More than 5 days first, then 5 days or less)
+                    "_id": 1
                 }
             }
         ]
 
+        # Perform aggregation with the correct index hints
+        results = db.booking.aggregate(
+            pipeline,
+            hint={"BookingID": 1}  # Use the BookingID_1 index for the lookup on BookingID
+        )
 
-
-
-
-        # Perform aggregation
-        results = db.booking.aggregate(pipeline)
         report_data = list(results)  # Convert results to a list
 
         # If no data for "More than 5 days" or "5 days or less", add a default value
@@ -955,7 +983,7 @@ def room_report():
         # Print the results
         print(report_data)
 
-
+        return render_template('room_report.html', report_data=report_data)
 
     else:
         # MariaDB Query for Room Booking Duration Report (Total Bookings and Suite Bookings)
@@ -965,13 +993,23 @@ def room_report():
                     WHEN DATEDIFF(b.CheckOutDate, b.CheckInDate) > 5 THEN 'More than 5 days'
                     ELSE '5 days or less'
                 END AS DurationCategory,
-                COUNT(*) AS TotalBookings,  -- All rooms are counted
-                COUNT(DISTINCT CASE WHEN sr.RoomNumber IS NOT NULL THEN b.BookingID END) AS NumSuiteBookings
+                
+                COUNT(*) AS TotalBookings,
+
+                COUNT(
+                    CASE 
+                        WHEN sr.RoomNumber IS NOT NULL THEN 1 
+                        ELSE NULL 
+                    END
+                ) AS NumSuiteBookings
+
             FROM Booking b
             JOIN Contains c ON b.BookingID = c.BookingID
             JOIN Room r ON c.RoomNumber = r.RoomNumber AND c.HotelID = r.HotelID
             LEFT JOIN SuiteRoom sr ON sr.RoomNumber = r.RoomNumber AND sr.HotelID = r.HotelID
+
             WHERE b.CheckInDate IS NOT NULL AND b.CheckOutDate IS NOT NULL
+
             GROUP BY DurationCategory
             ORDER BY DurationCategory;
         """
