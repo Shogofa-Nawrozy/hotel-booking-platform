@@ -360,8 +360,6 @@ def bookings():
         return render_template('bookings.html', bookings=bookings)
 
 
-
-
 # Payments list
 @app.route('/payment', methods=['GET', 'POST'])
 def payment():
